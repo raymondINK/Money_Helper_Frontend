@@ -425,9 +425,68 @@ Examples:
     const accountToUse = selectedAccount || (accounts.length > 0 ? accounts[0] : null);
     if ((!message.trim() && !uploadedImage) || !accountToUse || loading) return;
 
+    const userMessage = message.trim();
     setLoading(true);
 
     try {
+      // First, try using the backend chat API for conversational AI (but don't create transaction yet!)
+      if (!uploadedImage) {
+        try {
+          // Notify the ChatArea about the user message
+          const finnyChat = (window as any).__finnyChat;
+          if (finnyChat) {
+            finnyChat.addUserMessage(userMessage);
+            finnyChat.addTypingIndicator();
+          }
+
+          const chatRes = await api.post('/chat/parse', {
+            message: userMessage,
+            account_id: accountToUse.id
+          });
+
+          const chatResponse = chatRes.data;
+          
+          // Remove typing indicator
+          if (finnyChat) {
+            setTimeout(() => finnyChat.removeTypingIndicator(), 200);
+          }
+
+          // If we got a parsed transaction, show preview for confirmation
+          if (chatResponse.parsed_transaction) {
+            const parsed: ParsedTransaction = {
+              type: chatResponse.parsed_transaction.type,
+              amount: chatResponse.parsed_transaction.amount,
+              description: chatResponse.parsed_transaction.description,
+              category: chatResponse.parsed_transaction.category || 'General',
+              date: chatResponse.parsed_transaction.date || new Date().toISOString().split('T')[0],
+            };
+            setParsedTx(parsed);
+            setShowPreview(true);
+            setLlmResponse(chatResponse.response || '');
+            setLoading(false);
+            return;
+          }
+
+          // If it's a query or help request, show response in chat
+          if (finnyChat && chatResponse.action !== 'transaction_created') {
+            finnyChat.addBotMessage(chatResponse.response);
+          }
+
+          setMessage('');
+          setLoading(false);
+          return;
+        } catch (chatErr) {
+          console.log('Chat API failed, falling back to local LLM:', chatErr);
+          // Remove typing indicator on error
+          const finnyChat = (window as any).__finnyChat;
+          if (finnyChat) {
+            finnyChat.removeTypingIndicator();
+          }
+          // Fall through to local LLM processing
+        }
+      }
+
+      // Fallback: Use local LLM for parsing
       let parsed: ParsedTransaction | null = null;
 
       // If there's an image, scan it first
@@ -508,6 +567,16 @@ Examples:
           date: txDate,
         });
 
+        // Show AI response
+        const finnyChat = (window as any).__finnyChat;
+        if (finnyChat) {
+          finnyChat.addBotMessage(
+            `✅ Transfer complete! Moved RM${parsedTx.amount.toFixed(2)} from ${fromAccount?.name} to ${toAccount?.name}. 💸`,
+            true,
+            `-$${parsedTx.amount.toFixed(2)}`
+          );
+        }
+
         // Clear everything
         setMessage('');
         setUploadedImage(null);
@@ -539,6 +608,29 @@ Examples:
         category: parsedTx.category || selectedCategory,
         date: txDate,
       });
+
+      // Show AI response in ChatArea
+      const finnyChat = (window as any).__finnyChat;
+      if (finnyChat) {
+        const isIncome = parsedTx.type === 'income';
+        const responses = isIncome 
+          ? [
+              `🎉 Awesome! Added RM${parsedTx.amount.toFixed(2)} income for ${parsedTx.description}!`,
+              `💵 Nice! RM${parsedTx.amount.toFixed(2)} from ${parsedTx.description} recorded!`,
+              `✨ Great! Income of RM${parsedTx.amount.toFixed(2)} added to ${accountToUse.name}!`
+            ]
+          : [
+              `✅ Got it! Logged RM${parsedTx.amount.toFixed(2)} for ${parsedTx.description} 💸`,
+              `📝 Done! Added RM${parsedTx.amount.toFixed(2)} expense for ${parsedTx.description}`,
+              `💰 Noted! RM${parsedTx.amount.toFixed(2)} for ${parsedTx.description} recorded!`
+            ];
+        const randomResponse = responses[Math.floor(Math.random() * responses.length)];
+        finnyChat.addBotMessage(
+          randomResponse,
+          true,
+          `${isIncome ? '+' : '-'}$${parsedTx.amount.toFixed(2)}`
+        );
+      }
 
       // Clear everything
       setMessage('');

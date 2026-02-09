@@ -364,6 +364,7 @@ const TransactionsPage = () => {
   };
 
   const handleDayClick = (_date: Date, dayTransactions: any[]) => {
+    // Legacy function - kept for compatibility
     setSelectedDayTransactions(dayTransactions);
   };
 
@@ -385,6 +386,13 @@ const TransactionsPage = () => {
     { key: 'description', label: 'Description' },
   ];
 
+  const [selectedDateForDisplay, setSelectedDateForDisplay] = useState<Date | null>(null);
+
+  const handleDayClickWithDate = (date: Date, dayTransactions: any[]) => {
+    setSelectedDateForDisplay(date);
+    setSelectedDayTransactions(dayTransactions);
+  };
+
   const renderCalendarView = () => (
     <div>
       <TransactionCalendar
@@ -393,32 +401,63 @@ const TransactionsPage = () => {
         recurringPayments={recurringPayments}
         currentDate={currentDate}
         onDateChange={setCurrentDate}
-        onDayClick={handleDayClick}
+        onDayClick={handleDayClickWithDate}
       />
 
-      {selectedDayTransactions.length > 0 && (
-        <div className="p-4 border-t border-white/10">
-          <h3 className="text-sm font-medium text-slate-400 mb-3">Selected Day Transactions</h3>
-          <div className="space-y-2">
+      {/* Selected Day Transactions */}
+      <div className="px-6 pb-6 space-y-4">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-bold text-zinc-400 uppercase tracking-widest">Selected Day Transactions</h3>
+          {selectedDateForDisplay && (
+            <span className="text-xs font-medium px-2 py-1 bg-zinc-800 rounded-lg text-zinc-400">
+              {selectedDateForDisplay.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+            </span>
+          )}
+        </div>
+        
+        {selectedDayTransactions.length === 0 ? (
+          <div className="text-center py-8 text-zinc-500">
+            <p>Click on a date to view transactions</p>
+          </div>
+        ) : (
+          <div className="space-y-2 pb-24">
             {selectedDayTransactions.map(tx => (
-              <div key={tx.id} className="flex items-center justify-between bg-[#1a1d24] rounded-lg p-3">
-                <div className="flex items-center gap-3">
-                  <div className={`p-2 rounded-lg ${tx.type === 'income' ? 'bg-emerald-500/10 text-emerald-400' : tx.type === 'transfer' ? 'bg-blue-500/10 text-blue-400' : 'bg-red-500/10 text-red-400'}`}>
-                    {tx.type === 'income' ? <TrendingUp size={16} /> : tx.type === 'transfer' ? <ArrowLeftRight size={16} /> : <TrendingDown size={16} />}
+              <div key={tx.id} className="flex items-center justify-between p-4 bg-zinc-900/60 backdrop-blur-sm border border-zinc-800 rounded-2xl hover:bg-zinc-800/50 transition-colors">
+                <div className="flex items-center gap-4">
+                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
+                    tx.type === 'income' 
+                      ? 'bg-emerald-500/10' 
+                      : tx.type === 'transfer' 
+                        ? 'bg-blue-500/10' 
+                        : 'bg-rose-500/10'
+                  }`}>
+                    {tx.type === 'income' ? (
+                      <TrendingUp size={18} className="text-emerald-500" />
+                    ) : tx.type === 'transfer' ? (
+                      <ArrowLeftRight size={18} className="text-blue-500" />
+                    ) : (
+                      <TrendingDown size={18} className="text-rose-500" />
+                    )}
                   </div>
                   <div>
-                    <div className="text-sm text-white">{tx.note || 'No description'}</div>
-                    <div className="text-xs text-slate-500">{tx.category}</div>
+                    <h4 className="font-semibold text-sm text-white">{tx.note || 'No description'}</h4>
+                    <p className="text-xs text-zinc-500">{tx.category || 'Uncategorized'}</p>
                   </div>
                 </div>
-                <div className={`font-medium ${tx.type === 'income' ? 'text-emerald-400' : tx.type === 'transfer' ? 'text-blue-400' : 'text-red-400'}`}>
+                <span className={`font-bold ${
+                  tx.type === 'income' 
+                    ? 'text-emerald-500' 
+                    : tx.type === 'transfer' 
+                      ? 'text-blue-500' 
+                      : 'text-rose-500'
+                }`}>
                   {tx.type === 'income' ? '+' : tx.type === 'transfer' ? '↔' : '-'}RM {tx.amount.toFixed(2)}
-                </div>
+                </span>
               </div>
             ))}
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 
@@ -650,49 +689,54 @@ const TransactionsPage = () => {
     <div className="flex h-screen bg-[#0f1115] text-white">
       <Sidebar user={user} collapsed={sidebarCollapsed} onToggle={toggleSidebar} />
 
-      <div className="flex-1 flex flex-col overflow-hidden min-w-0">
-        <div className="bg-[#1a1d24]/90 backdrop-blur-md border-b border-white/10">
-          <div className="flex items-center justify-between p-4">
-            <div className="flex items-center gap-3">
-              <button className="p-2 hover:bg-white/5 rounded-lg text-slate-400">
-                <Search size={20} />
-              </button>
-              <h1 className="text-xl font-bold">Transactions</h1>
-            </div>
-            <div className="flex items-center gap-2">
-              <button className="p-2 hover:bg-white/5 rounded-lg text-slate-400">
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
-                </svg>
-              </button>
-              <button className="p-2 hover:bg-white/5 rounded-lg text-slate-400">
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
-                </svg>
-              </button>
-            </div>
+      <div className="flex-1 flex flex-col overflow-hidden min-w-0 bg-[#0f1115]">
+        {/* Header */}
+        <header className="h-16 flex items-center justify-between px-8 border-b border-zinc-800 bg-[#0f1115]">
+          <div className="flex items-center gap-4">
+            <svg className="w-5 h-5 text-zinc-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+            <h1 className="text-xl font-semibold">Transactions</h1>
           </div>
+          <div className="flex items-center gap-2">
+            <button className="p-2 hover:bg-zinc-800 rounded-full text-zinc-400 transition-colors">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
+              </svg>
+            </button>
+            <button className="p-2 hover:bg-zinc-800 rounded-full text-zinc-400 transition-colors">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
+              </svg>
+            </button>
+            <button className="p-2 hover:bg-zinc-800 rounded-full text-zinc-400 transition-colors">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+              </svg>
+            </button>
+          </div>
+        </header>
 
-          <div className="flex overflow-x-auto border-b border-white/10">
+        {/* Tabs */}
+        <div className="px-8 mt-4">
+          <div className="flex items-center gap-8 border-b border-zinc-800">
             {tabs.map(tab => (
               <button
                 key={tab.key}
                 onClick={() => setActiveTab(tab.key)}
-                className={`px-4 py-3 text-sm font-medium whitespace-nowrap transition-all relative ${activeTab === tab.key
-                  ? 'text-white'
-                  : 'text-slate-400 hover:text-slate-300'
-                  }`}
+                className={`pb-3 text-sm font-medium transition-all relative ${
+                  activeTab === tab.key
+                    ? 'text-violet-400 border-b-2 border-violet-500'
+                    : 'text-zinc-500 hover:text-zinc-300 border-b-2 border-transparent'
+                }`}
               >
                 {tab.label}
-                {activeTab === tab.key && (
-                  <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-red-500" />
-                )}
               </button>
             ))}
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto pb-24">
+        <div className="flex-1 overflow-y-auto pb-24 bg-[#0f1115]">
           {loading ? (
             <div className="flex items-center justify-center h-64">
               <div className="text-slate-400">Loading transactions...</div>
@@ -710,9 +754,9 @@ const TransactionsPage = () => {
 
         <button
           onClick={handleCreate}
-          className="fixed bottom-24 right-6 w-14 h-14 bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 rounded-full shadow-lg shadow-orange-500/30 flex items-center justify-center transition-all hover:scale-105 z-40"
+          className="fixed bottom-10 right-10 w-14 h-14 bg-gradient-to-br from-violet-500 to-fuchsia-500 text-white rounded-2xl shadow-2xl shadow-violet-500/40 flex items-center justify-center hover:scale-110 active:scale-95 transition-all group z-40"
         >
-          <Plus size={28} className="text-white" />
+          <Plus size={28} className="group-hover:rotate-90 transition-transform duration-300" />
         </button>
       </div>
 

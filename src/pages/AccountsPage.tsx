@@ -181,7 +181,8 @@ const AccountsPage = () => {
                 return (
                   <div
                     key={account.id}
-                    className="bg-[#1a1d24]/90 backdrop-blur-md border border-white/10 rounded-2xl p-6 hover:border-emerald-500/30 transition-all group"
+                    onClick={() => navigate(`/transactions?account_id=${account.id}`)}
+                    className="bg-[#1a1d24]/90 backdrop-blur-md border border-white/10 rounded-2xl p-6 hover:border-emerald-500/30 transition-all group cursor-pointer"
                   >
                     {/* Account Header */}
                     <div className="flex items-start justify-between mb-4">
@@ -196,13 +197,19 @@ const AccountsPage = () => {
                       </div>
                       <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                         <button
-                          onClick={() => handleEdit(account)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleEdit(account);
+                          }}
                           className="p-2 hover:bg-blue-500/10 rounded-lg text-blue-400 hover:text-blue-300 transition-all"
                         >
                           <Edit2 size={16} />
                         </button>
                         <button
-                          onClick={() => handleDelete(account.id)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDelete(account.id);
+                          }}
                           className="p-2 hover:bg-red-500/10 rounded-lg text-red-400 hover:text-red-300 transition-all"
                         >
                           <Trash2 size={16} />

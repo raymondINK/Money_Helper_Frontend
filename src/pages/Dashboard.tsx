@@ -4,6 +4,7 @@ import Sidebar from '../components/Sidebar';
 import Header from '../components/Header';
 import ChatArea from '../components/ChatArea';
 import BottomBar from '../components/BottomBar';
+import { useTheme } from '../contexts/ThemeContext';
 import api from '../api/axios';
 
 const Dashboard = () => {
@@ -15,6 +16,7 @@ const Dashboard = () => {
     return localStorage.getItem('sidebarCollapsed') === 'true';
   });
   const navigate = useNavigate();
+  const { theme } = useTheme();
 
   const toggleSidebar = () => {
     setSidebarCollapsed(prev => {
@@ -93,7 +95,7 @@ const Dashboard = () => {
   };
 
   return (
-    <div className="flex h-screen bg-[#0f1115] text-white">
+    <div className={`flex h-screen ${theme === 'dark' ? 'bg-[#0f1115] text-white' : 'bg-gray-50 text-gray-900'}`}>
       <Sidebar user={user} collapsed={sidebarCollapsed} onToggle={toggleSidebar} />
       <div className="flex-1 flex flex-col min-w-0">
         <Header 

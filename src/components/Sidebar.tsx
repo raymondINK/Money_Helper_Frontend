@@ -24,7 +24,7 @@ const Sidebar = ({ user, collapsed = false, onToggle }: SidebarProps) => {
     { icon: Wallet, label: 'Accounts', path: '/accounts' },
     { icon: Calendar, label: 'Transactions', path: '/transactions' },
     { icon: Repeat, label: 'Recurring', path: '/recurring' },
-    { icon: FileText, label: 'Reports', path: '/reports' },
+    // { icon: FileText, label: 'Reports', path: '/reports' },
     { icon: Settings, label: 'Settings', path: '/settings' },
   ]
 

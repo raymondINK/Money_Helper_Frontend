@@ -60,6 +60,7 @@ const BudgetPage: React.FC<BudgetPageProps> = ({ standalone = false, selectedAcc
   const [newBudget, setNewBudget] = useState({ name: '', icon: '📦', budget_amount: 0 });
   const [viewMode, setViewMode] = useState<'income' | 'expense'>('expense');
   const [walletAllowanceInput, setWalletAllowanceInput] = useState('');
+  const [showCommittedExpenses, setShowCommittedExpenses] = useState(false);
   const [statusModal, setStatusModal] = useState({
     isOpen: false,
     status: 'success' as 'success' | 'error',
@@ -75,6 +76,8 @@ const BudgetPage: React.FC<BudgetPageProps> = ({ standalone = false, selectedAcc
   useEffect(() => {
     if (selectedAccount) {
       loadData();
+      // Initialize wallet allowance input with current value
+      setWalletAllowanceInput(String(selectedAccount.monthly_allowance || 0));
     }
   }, [currentDate, selectedAccount]);
 
@@ -103,7 +106,9 @@ const BudgetPage: React.FC<BudgetPageProps> = ({ standalone = false, selectedAcc
       ]);
       setTransactions(txRes.data);
       setBudgets(budgetRes.data || []);
-      setInstallments(installmentsRes.data || []);
+      // Filter out completed installments
+      const activeInstallments = (installmentsRes.data || []).filter((inst: Installment) => inst.status !== 'completed');
+      setInstallments(activeInstallments);
       setRecurringPayments(recurringRes.data || []);
     } catch (err) {
       console.error('Error loading data:', err);
@@ -330,26 +335,25 @@ const BudgetPage: React.FC<BudgetPageProps> = ({ standalone = false, selectedAcc
   return (
     <div className={standalone ? "flex-1 overflow-y-auto bg-[#0f1115]" : ""}>
       {/* Wallet Selector */}
-      <div className="px-4 pt-4">
+      <div className="px-4 pt-4 pb-2">
         <div className="flex items-center gap-2 mb-2">
           <Wallet size={16} className="text-slate-400" />
-          <span className="text-sm text-slate-400">Select Wallet</span>
+          <span className="text-sm text-slate-400">Wallet</span>
         </div>
-        <div className="flex gap-2 overflow-x-auto pb-2">
+        <select
+          value={selectedAccount?.id || ''}
+          onChange={(e) => {
+            const account = accounts.find(a => a.id === parseInt(e.target.value));
+            if (account) setSelectedAccount(account);
+          }}
+          className="w-full px-4 py-2.5 bg-[#1a1d24] border border-white/10 rounded-lg text-white focus:outline-none focus:border-blue-500 transition-colors"
+        >
           {accounts.map(account => (
-            <button
-              key={account.id}
-              onClick={() => setSelectedAccount(account)}
-              className={`px-4 py-2 rounded-lg whitespace-nowrap transition-colors ${
-                selectedAccount?.id === account.id
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-[#1a1d24] text-slate-300 hover:bg-[#2a2d34]'
-              }`}
-            >
+            <option key={account.id} value={account.id}>
               {account.name}
-            </button>
+            </option>
           ))}
-        </div>
+        </select>
       </div>
 
       {/* Period Selector */}
@@ -421,9 +425,12 @@ const BudgetPage: React.FC<BudgetPageProps> = ({ standalone = false, selectedAcc
         <div className="bg-[#1a1d24]/80 border border-white/10 rounded-2xl p-5">
           <div className="flex items-center justify-between mb-4">
             <div>
-              <div className="text-slate-400 text-sm mb-1">Remaining (Monthly)</div>
+              <div className="text-slate-400 text-sm mb-1">Budget Status</div>
               <div className={`text-3xl font-bold ${remaining >= 0 ? 'text-white' : 'text-red-400'}`}>
-                RM {remaining.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                {remaining >= 0 ? 'RM ' : '-RM '}{Math.abs(remaining).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+              </div>
+              <div className="text-xs text-slate-500 mt-1">
+                {remaining >= 0 ? 'Under budget' : 'Over budget'}
               </div>
             </div>
             <button 
@@ -482,72 +489,87 @@ const BudgetPage: React.FC<BudgetPageProps> = ({ standalone = false, selectedAcc
 
         {/* Committed Expenses Card - Installments & Recurring */}
         {(committed.installments.length > 0 || committed.recurringPayments.length > 0) && (
-          <div className="bg-gradient-to-br from-cyan-500/10 to-violet-500/10 border border-cyan-500/20 rounded-2xl p-5">
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-2">
+          <div className="bg-gradient-to-br from-cyan-500/10 to-violet-500/10 border border-cyan-500/20 rounded-2xl overflow-hidden">
+            <button
+              onClick={() => setShowCommittedExpenses(!showCommittedExpenses)}
+              className="w-full p-4 flex items-center justify-between hover:bg-white/5 transition-colors"
+            >
+              <div className="flex items-center gap-3">
                 <div className="p-2 bg-cyan-500/20 rounded-lg">
                   <Clock size={18} className="text-cyan-400" />
                 </div>
-                <div>
+                <div className="text-left">
                   <div className="text-white font-semibold">Committed Expenses</div>
                   <div className="text-xs text-slate-400">Recurring payments due this period</div>
                 </div>
               </div>
-              <div className="text-right">
-                <div className="text-2xl font-bold text-cyan-400">
-                  RM {committed.total.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+              <div className="flex items-center gap-4">
+                <div className="text-right">
+                  <div className="text-xl font-bold text-cyan-400">
+                    RM {committed.total.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                  </div>
+                  {/* <div className="text-xs text-slate-400">
+                    After: <span className={actualRemaining >= 0 ? 'text-emerald-400' : 'text-red-400'}>
+                      RM {actualRemaining.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                    </span>
+                  </div> */}
                 </div>
-                <div className="text-xs text-slate-400">
-                  After committed: <span className={actualRemaining >= 0 ? 'text-emerald-400' : 'text-red-400'}>
-                    RM {actualRemaining.toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                  </span>
-                </div>
+                <ChevronRight 
+                  size={20} 
+                  className={`text-slate-400 transition-transform ${
+                    showCommittedExpenses ? 'rotate-90' : ''
+                  }`}
+                />
               </div>
-            </div>
+            </button>
 
-            {/* Installments */}
-            {committed.installments.length > 0 && (
-              <div className="mb-3">
-                <div className="text-xs text-slate-400 mb-2 flex items-center gap-1">
-                  <Clock size={12} /> Installments
-                </div>
-                <div className="space-y-2">
-                  {committed.installments.map(inst => (
-                    <div key={inst.id} className="flex items-center justify-between bg-white/5 rounded-lg px-3 py-2">
-                      <div className="flex items-center gap-2">
-                        <span>{inst.icon}</span>
-                        <span className="text-sm text-white">{inst.name}</span>
-                        <span className="text-xs text-slate-500">({inst.remaining_months} months left)</span>
-                      </div>
-                      <span className="text-sm text-cyan-400 font-medium">
-                        RM {inst.monthly_amount.toLocaleString()}
-                      </span>
+            {showCommittedExpenses && (
+              <div className="px-4 pb-4 pt-2 space-y-3">
+                {/* Installments */}
+                {committed.installments.length > 0 && (
+                  <div>
+                    <div className="text-xs text-slate-400 mb-2 flex items-center gap-1">
+                      <Clock size={12} /> Installments
                     </div>
-                  ))}
-                </div>
-              </div>
-            )}
+                    <div className="space-y-2">
+                      {committed.installments.map(inst => (
+                        <div key={inst.id} className="flex items-center justify-between bg-white/5 rounded-lg px-3 py-2">
+                          <div className="flex items-center gap-2">
+                            <span>{inst.icon}</span>
+                            <span className="text-sm text-white">{inst.name}</span>
+                            <span className="text-xs text-slate-500">({inst.remaining_months} months left)</span>
+                          </div>
+                          <span className="text-sm text-cyan-400 font-medium">
+                            RM {inst.monthly_amount.toLocaleString()}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
-            {/* Recurring Payments */}
-            {committed.recurringPayments.length > 0 && (
-              <div>
-                <div className="text-xs text-slate-400 mb-2 flex items-center gap-1">
-                  <Repeat size={12} /> Subscriptions & Bills
-                </div>
-                <div className="space-y-2">
-                  {committed.recurringPayments.map(rp => (
-                    <div key={rp.id} className="flex items-center justify-between bg-white/5 rounded-lg px-3 py-2">
-                      <div className="flex items-center gap-2">
-                        <span>{rp.icon}</span>
-                        <span className="text-sm text-white">{rp.name}</span>
-                        <span className="text-xs text-slate-500 capitalize">({rp.frequency})</span>
-                      </div>
-                      <span className="text-sm text-violet-400 font-medium">
-                        RM {rp.amount.toLocaleString()}
-                      </span>
+                {/* Recurring Payments */}
+                {committed.recurringPayments.length > 0 && (
+                  <div>
+                    <div className="text-xs text-slate-400 mb-2 flex items-center gap-1">
+                      <Repeat size={12} /> Subscriptions & Bills
                     </div>
-                  ))}
-                </div>
+                    <div className="space-y-2">
+                      {committed.recurringPayments.map(rp => (
+                        <div key={rp.id} className="flex items-center justify-between bg-white/5 rounded-lg px-3 py-2">
+                          <div className="flex items-center gap-2">
+                            <span>{rp.icon}</span>
+                            <span className="text-sm text-white">{rp.name}</span>
+                            <span className="text-xs text-slate-500 capitalize">({rp.frequency})</span>
+                          </div>
+                          <span className="text-sm text-violet-400 font-medium">
+                            RM {rp.amount.toLocaleString()}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -777,7 +799,7 @@ const BudgetPage: React.FC<BudgetPageProps> = ({ standalone = false, selectedAcc
                           </div>
                           <div className="flex gap-2">
                             <button
-                              onClick={() => setEditingBudget(budget)}
+                              onClick={() => setEditingBudget({ ...budget })}
                               className="px-3 py-1 bg-[#2a2d34] hover:bg-[#3a3d44] rounded-lg text-slate-300 text-sm"
                             >
                               Edit
