@@ -1,25 +1,40 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Edit2, Trash2, TrendingUp, X, Wallet } from 'lucide-react';
-import { Sidebar } from '../../shared/components';
+import { Sidebar, Header } from '../../shared/components';
+import { useTheme } from '../../theme';
 import api from '../../api/axios';
 
-const AccountsPage = () => {
+interface Account {
+  id: number;
+  name: string;
+  type: string;
+  balance: number;
+  created_at: string;
+}
+
+interface Transaction {
+  id: number;
+  type: string;
+  category: string;
+  amount: number;
+  note: string;
+  date: string;
+  account_id: number;
+}
+
+const AccountsPage: React.FC = () => {
   const [user, setUser] = useState<any>(null);
-  const [accounts, setAccounts] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [showModal, setShowModal] = useState(false);
-  const [editingAccount, setEditingAccount] = useState<any>(null);
-  const [formData, setFormData] = useState({
-    name: '',
-    type: 'checking',
-    balance: 0,
-    goal: 0
-  });
+  const [accounts, setAccounts] = useState<Account[]>([]);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [selectedAccount, setSelectedAccount] = useState<Account | null>(null);
+  const [totalBalance, setTotalBalance] = useState(0);
+  const [monthlySpent, setMonthlySpent] = useState(0);
+  const [monthlyLimit, setMonthlyLimit] = useState(4500);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     return localStorage.getItem('sidebarCollapsed') === 'true';
   });
   const navigate = useNavigate();
+  const { theme } = useTheme();
 
   const toggleSidebar = () => {
     setSidebarCollapsed(prev => {
@@ -29,332 +44,327 @@ const AccountsPage = () => {
   };
 
   useEffect(() => {
-    loadData();
-  }, []);
-
-  const loadData = async () => {
-    const token = localStorage.getItem('token');
-    if (!token) {
-      navigate('/login');
-      return;
-    }
-
-    try {
-      const storedUser = localStorage.getItem('user');
-      if (storedUser) {
-        setUser(JSON.parse(storedUser));
-      }
-
-      const [userRes, accountsRes] = await Promise.all([
-        api.get('/auth/me'),
-        api.get('/accounts')
-      ]);
-
-      const userData = userRes.data;
-      setUser(userData);
-      localStorage.setItem('user', JSON.stringify(userData));
-      setAccounts(accountsRes.data);
-    } catch (err) {
-      console.error(err);
-      if ((err as any).response?.status === 401) {
-        localStorage.removeItem('token');
-        localStorage.removeItem('user');
+    const fetchData = async () => {
+      const token = localStorage.getItem('token');
+      if (!token) {
         navigate('/login');
+        return;
       }
-    } finally {
-      setLoading(false);
-    }
-  };
 
-  const handleCreate = () => {
-    setEditingAccount(null);
-    setFormData({ name: '', type: 'checking', balance: 0, goal: 0 });
-    setShowModal(true);
-  };
+      try {
+        const [userRes, accountsRes, transactionsRes] = await Promise.all([
+          api.get('/auth/me'),
+          api.get('/accounts'),
+          api.get('/transactions')
+        ]);
 
-  const handleEdit = (account: any) => {
-    setEditingAccount(account);
-    setFormData({
-      name: account.name,
-      type: account.type,
-      balance: account.balance,
-      goal: account.goal || 0
-    });
-    setShowModal(true);
-  };
+        setUser(userRes.data);
+        setAccounts(accountsRes.data);
+        setTransactions(transactionsRes.data.slice(0, 5));
 
-  const handleDelete = async (accountId: number) => {
-    if (!confirm('Are you sure you want to delete this account?')) return;
+        const total = accountsRes.data.reduce((sum: number, acc: Account) => sum + acc.balance, 0);
+        setTotalBalance(total);
 
-    try {
-      await api.delete(`/accounts/${accountId}`);
-      await loadData();
-    } catch (err) {
-      console.error('Error deleting account:', err);
-      alert('Failed to delete account');
-    }
-  };
+        const currentMonth = new Date().getMonth();
+        const spent = transactionsRes.data
+          .filter((t: Transaction) => {
+            const txDate = new Date(t.date);
+            return t.type === 'expense' && txDate.getMonth() === currentMonth;
+          })
+          .reduce((sum: number, t: Transaction) => sum + t.amount, 0);
+        setMonthlySpent(spent);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-
-    try {
-      if (editingAccount) {
-        await api.put(`/accounts/${editingAccount.id}`, formData);
-      } else {
-        await api.post('/accounts', formData);
+      } catch (err) {
+        console.error(err);
+        if ((err as any).response?.status === 401) {
+          localStorage.removeItem('token');
+          localStorage.removeItem('user');
+          navigate('/login');
+        }
       }
-      setShowModal(false);
-      await loadData();
-    } catch (err) {
-      console.error('Error saving account:', err);
-      alert('Failed to save account');
+    };
+
+    fetchData();
+  }, [navigate]);
+
+  const getIconForCategory = (category: string) => {
+    const icons: Record<string, string> = {
+      'Subscription': 'subscriptions',
+      'Transfer': 'arrow_downward',
+      'Shopping': 'shopping_bag',
+      'Utilities': 'bolt',
+      'Food': 'restaurant',
+      'Entertainment': 'movie',
+      'Transportation': 'directions_car',
+      'Bills': 'receipt',
+    };
+    return icons[category] || 'receipt_long';
+  };
+
+  const getColorForCategory = (category: string) => {
+    const colors: Record<string, string> = {
+      'Subscription': 'bg-blue-500/20 text-blue-400',
+      'Transfer': 'bg-green-500/20 text-green-400',
+      'Shopping': 'bg-orange-500/20 text-orange-400',
+      'Utilities': 'bg-purple-500/20 text-purple-400',
+      'Food': 'bg-pink-500/20 text-pink-400',
+      'Entertainment': 'bg-indigo-500/20 text-indigo-400',
+      'Transportation': 'bg-yellow-500/20 text-yellow-400',
+      'Bills': 'bg-red-500/20 text-red-400',
+    };
+    return colors[category] || 'bg-gray-500/20 text-gray-400';
+  };
+
+  const formatDate = (dateString: string) => {
+    const date = new Date(dateString);
+    const today = new Date();
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+
+    if (date.toDateString() === today.toDateString()) {
+      return 'Today';
+    } else if (date.toDateString() === yesterday.toDateString()) {
+      return 'Yesterday';
+    } else {
+      return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
     }
   };
 
-  const totalBalance = accounts.reduce((sum, acc) => sum + acc.balance, 0);
-  const totalGoal = accounts.reduce((sum, acc) => sum + (acc.goal || 0), 0);
+  const usagePercentage = Math.round((monthlySpent / monthlyLimit) * 100);
 
   return (
-    <div className="flex h-screen bg-[#0f1115] text-white overflow-hidden">
+    <div className="flex h-screen bg-[#0A0A0A] overflow-hidden">
       <Sidebar user={user} collapsed={sidebarCollapsed} onToggle={toggleSidebar} />
       
-      <div className="flex-1 overflow-y-auto min-w-0">
-        {/* Header */}
-        <div className="bg-[#1a1d24]/90 backdrop-blur-md border-b border-white/10 p-6 sticky top-0 z-10">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-3xl font-bold text-white mb-2">Account Management</h1>
-              <p className="text-slate-400">Manage your financial accounts and track your goals</p>
+      <div className="flex-1 flex flex-col overflow-hidden">
+        <Header 
+          accounts={accounts} 
+          currentBalance={selectedAccount?.balance || totalBalance}
+          selectedAccount={selectedAccount}
+          onAccountChange={(accountId) => {
+            const account = accounts.find(a => a.id === parseInt(accountId));
+            if (account) {
+              setSelectedAccount(account);
+              localStorage.setItem('selectedAccountId', accountId);
+            }
+          }}
+        />
+        
+        <div className="flex-1 relative overflow-y-auto bg-[#0A0A0A]">
+          <div className="sticky top-0 z-10 flex h-20 w-full items-center justify-between border-b border-white/5 bg-[#0A0A0A]/80 backdrop-blur-md px-6 lg:px-12">
+            <div className="flex flex-col">
+              <h2 className="text-2xl font-bold tracking-tight text-white">Good evening, {user?.username || 'Alex'}</h2>
+              <p className="text-sm text-gray-400">Financial overview in the cosmos.</p>
             </div>
-            <button
-              onClick={handleCreate}
-              className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 rounded-xl font-semibold transition-all shadow-lg shadow-emerald-500/30 hover:shadow-emerald-500/50"
-            >
-              <Plus size={20} />
-              Add New Account
-            </button>
-          </div>
-
-          {/* Summary Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-6">
-            <div className="bg-gradient-to-br from-blue-500/10 to-blue-600/10 border border-blue-500/30 rounded-xl p-4">
-              <div className="text-sm text-blue-400 mb-1">Total Accounts</div>
-              <div className="text-3xl font-bold text-white">{accounts.length}</div>
-            </div>
-            <div className="bg-gradient-to-br from-emerald-500/10 to-emerald-600/10 border border-emerald-500/30 rounded-xl p-4">
-              <div className="text-sm text-emerald-400 mb-1">Total Balance</div>
-              <div className="text-3xl font-bold text-white">${totalBalance.toFixed(2)}</div>
-            </div>
-            <div className="bg-gradient-to-br from-purple-500/10 to-purple-600/10 border border-purple-500/30 rounded-xl p-4">
-              <div className="text-sm text-purple-400 mb-1">Total Goals</div>
-              <div className="text-3xl font-bold text-white">${totalGoal.toFixed(2)}</div>
-            </div>
-          </div>
-        </div>
-
-        {/* Accounts Grid */}
-        <div className="p-6">
-          {loading ? (
-            <div className="flex items-center justify-center h-64">
-              <div className="text-slate-400">Loading accounts...</div>
-            </div>
-          ) : accounts.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-64 bg-[#1a1d24]/50 backdrop-blur-md border border-white/5 rounded-2xl">
-              <Wallet size={64} className="text-slate-600 mb-4" />
-              <h3 className="text-xl font-semibold text-slate-300 mb-2">No accounts yet</h3>
-              <p className="text-slate-500 mb-6">Create your first account to start tracking your finances</p>
-              <button
-                onClick={handleCreate}
-                className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 rounded-xl font-semibold transition-all shadow-lg shadow-emerald-500/30"
-              >
-                <Plus size={20} />
-                Add New Account
+            <div className="flex items-center gap-4">
+              <button className="glass-btn relative flex size-10 items-center justify-center rounded-full text-gray-400 hover:text-white">
+                <span className="material-symbols-outlined text-[20px]">notifications</span>
+                <span className="absolute right-2 top-2 size-2 rounded-full bg-primary shadow-[0_0_8px_#0df259]"></span>
               </button>
             </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {accounts.map((account) => {
-                const progress = account.goal > 0 ? (account.balance / account.goal) * 100 : 0;
-                const progressClamped = Math.min(progress, 100);
+          </div>
 
-                return (
-                  <div
-                    key={account.id}
-                    onClick={() => navigate(`/transactions?account_id=${account.id}`)}
-                    className="bg-[#1a1d24]/90 backdrop-blur-md border border-white/10 rounded-2xl p-6 hover:border-emerald-500/30 transition-all group cursor-pointer"
+          <div className="layout-content-container mx-auto flex max-w-[1200px] flex-col gap-8 p-6 lg:p-12">
+            <div className="grid gap-6 lg:grid-cols-3">
+              <div className="glass-panel hero-glow relative col-span-1 flex flex-col overflow-hidden rounded-3xl p-8 lg:col-span-2 min-h-[320px]">
+                <div className="absolute -right-20 -top-20 size-64 rounded-full bg-purple-600/10 blur-[80px]"></div>
+                <div className="absolute -left-20 -bottom-20 size-64 rounded-full bg-primary/5 blur-[80px]"></div>
+                
+                <div className="relative z-10 flex items-start justify-between">
+                  <div>
+                    <p className="mb-1 text-xs font-semibold uppercase tracking-widest text-gray-500">Total Balance</p>
+                    <h3 className="text-5xl font-extrabold tracking-tighter text-white neon-text mb-4">
+                      ${totalBalance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </h3>
+                    <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-1.5 rounded-full bg-primary/10 px-3 py-1 border border-primary/20">
+                        <span className="material-symbols-outlined text-primary text-sm font-bold">trending_up</span>
+                        <span className="text-sm font-bold text-primary">+12.5%</span>
+                      </div>
+                      <span className="text-xs font-medium text-gray-500 uppercase tracking-tight">Monthly Trend</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="relative z-10 mt-auto pt-8 w-full h-32">
+                  <svg className="h-full w-full" preserveAspectRatio="none" viewBox="0 0 400 100">
+                    <defs>
+                      <linearGradient id="chartGradient" x1="0" x2="0" y1="0" y2="1">
+                        <stop offset="0%" stopColor="#0df259" stopOpacity="0.25"></stop>
+                        <stop offset="100%" stopColor="#0df259" stopOpacity="0"></stop>
+                      </linearGradient>
+                    </defs>
+                    <path d="M0 80 Q 40 70, 80 85 T 160 55 T 240 75 T 320 40 T 400 60 V 100 H 0 Z" fill="url(#chartGradient)"></path>
+                    <path className="chart-line" d="M0 80 Q 40 70, 80 85 T 160 55 T 240 75 T 320 40 T 400 60" fill="none" stroke="#0df259" strokeLinecap="round" strokeWidth="3"></path>
+                    <circle className="animate-pulse shadow-[0_0_10px_#0df259]" cx="160" cy="55" fill="#0df259" r="4"></circle>
+                    <circle className="shadow-[0_0_10px_#0df259]" cx="320" cy="40" fill="#0df259" r="4"></circle>
+                  </svg>
+                  <div className="flex justify-between mt-2 px-1 text-[10px] font-bold text-gray-500 uppercase tracking-widest">
+                    <span>01 Oct</span>
+                    <span>08 Oct</span>
+                    <span>15 Oct</span>
+                    <span>22 Oct</span>
+                    <span>31 Oct</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="glass-panel flex flex-col justify-between rounded-3xl p-6 lg:col-span-1">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-semibold uppercase tracking-widest text-gray-500">Monthly Limit</p>
+                  <span className="material-symbols-outlined text-gray-500 text-lg">info</span>
+                </div>
+                <div className="flex flex-col items-center justify-center py-4">
+                  <div className="relative size-32">
+                    <svg className="size-full -rotate-90" viewBox="0 0 36 36">
+                      <path className="text-gray-800" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="currentColor" strokeWidth="3"></path>
+                      <path className="text-primary drop-shadow-[0_0_6px_rgba(13,242,89,0.8)]" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="currentColor" strokeDasharray={`${usagePercentage}, 100`} strokeLinecap="round" strokeWidth="3"></path>
+                    </svg>
+                    <div className="absolute inset-0 flex flex-col items-center justify-center">
+                      <span className="text-2xl font-black text-white">{usagePercentage}%</span>
+                      <span className="text-[10px] font-bold text-gray-500 uppercase">Used</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="space-y-3">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-400 font-medium">Spent</span>
+                    <span className="text-white font-bold">${monthlySpent.toLocaleString()}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-400 font-medium">Remaining</span>
+                    <span className="text-primary font-bold">${(monthlyLimit - monthlySpent).toLocaleString()}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid gap-8 lg:grid-cols-3">
+              <div className="lg:col-span-2 flex flex-col gap-6">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-xl font-bold text-white">Your Accounts</h2>
+                  <button 
+                    onClick={() => navigate('/settings')}
+                    className="text-sm font-bold text-primary hover:text-white transition-colors uppercase tracking-tight"
                   >
-                    {/* Account Header */}
-                    <div className="flex items-start justify-between mb-4">
-                      <div className="flex items-center gap-3">
-                        <div className="p-2 bg-emerald-500/10 rounded-lg">
-                          <Wallet size={24} className="text-emerald-400" />
+                    Manage Accounts
+                  </button>
+                </div>
+                
+                <div className="grid gap-4 sm:grid-cols-2">
+                  {accounts.map((account) => (
+                    <button
+                      key={account.id}
+                      onClick={() => {
+                        setSelectedAccount(account);
+                        localStorage.setItem('selectedAccountId', account.id.toString());
+                      }}
+                      className="glass-panel account-card-glow group relative flex flex-col justify-between rounded-2xl p-6 transition-all hover:-translate-y-1 hover:shadow-[0_0_30px_rgba(13,242,89,0.2)] cursor-pointer text-left"
+                    >
+                      <div className="mb-6 flex items-start justify-between">
+                        <div className="flex items-center gap-3">
+                          <div className="flex size-10 items-center justify-center rounded-full bg-white text-black">
+                            <span className="material-symbols-outlined">
+                              {account.type === 'savings' ? 'savings' : 'account_balance'}
+                            </span>
+                          </div>
+                          <div>
+                            <p className="font-bold text-white">{account.name}</p>
+                            <p className="text-xs text-gray-400">**** {account.id.toString().slice(-4)}</p>
+                          </div>
                         </div>
-                        <div>
-                          <h3 className="text-lg font-semibold text-white">{account.name}</h3>
-                          <span className="text-xs text-slate-500 uppercase tracking-wide">{account.type}</span>
-                        </div>
+                        <span className="rounded-full bg-white/10 px-2 py-1 text-[10px] font-bold uppercase text-white">
+                          Active
+                        </span>
                       </div>
-                      <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleEdit(account);
-                          }}
-                          className="p-2 hover:bg-blue-500/10 rounded-lg text-blue-400 hover:text-blue-300 transition-all"
-                        >
-                          <Edit2 size={16} />
-                        </button>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleDelete(account.id);
-                          }}
-                          className="p-2 hover:bg-red-500/10 rounded-lg text-red-400 hover:text-red-300 transition-all"
-                        >
-                          <Trash2 size={16} />
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Balance */}
-                    <div className="mb-4">
-                      <div className="text-sm text-slate-400 mb-1">Current Balance</div>
-                      <div className="text-3xl font-bold text-white">${account.balance.toFixed(2)}</div>
-                    </div>
-
-                    {/* Goal Progress */}
-                    {account.goal > 0 && (
                       <div>
-                        <div className="flex items-center justify-between text-sm mb-2">
-                          <span className="text-slate-400">Goal</span>
-                          <span className="text-slate-300 font-medium">${account.goal.toFixed(2)}</span>
-                        </div>
-                        <div className="relative h-2 bg-slate-800 rounded-full overflow-hidden">
-                          <div
-                            className="absolute inset-y-0 left-0 bg-gradient-to-r from-emerald-500 to-emerald-400 rounded-full shadow-[0_0_10px_rgba(16,185,129,0.5)] transition-all duration-500"
-                            style={{ width: `${progressClamped}%` }}
-                          />
-                        </div>
-                        <div className="flex items-center gap-1 mt-2 text-xs">
-                          <TrendingUp size={12} className={progress >= 100 ? 'text-emerald-400' : 'text-slate-500'} />
-                          <span className={progress >= 100 ? 'text-emerald-400 font-medium' : 'text-slate-500'}>
-                            {progressClamped.toFixed(1)}% of goal
+                        <p className="text-[10px] text-gray-500 uppercase font-bold tracking-widest">Available Balance</p>
+                        <p className="text-2xl font-bold text-white mt-1">
+                          ${account.balance.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                        </p>
+                      </div>
+                      <div className="absolute right-0 top-0 h-full w-1/2 bg-gradient-to-l from-primary/5 to-transparent opacity-0 transition-opacity group-hover:opacity-100"></div>
+                    </button>
+                  ))}
+                </div>
+
+                <div className="glass-panel rounded-3xl p-6">
+                  <div className="mb-6 flex items-center justify-between">
+                    <h3 className="font-bold text-white">Savings Goals</h3>
+                    <button className="rounded-lg bg-white/5 p-2 hover:bg-white/10">
+                      <span className="material-symbols-outlined text-sm text-gray-300">add</span>
+                    </button>
+                  </div>
+                  <div className="space-y-6">
+                    <div className="space-y-3">
+                      <div className="flex justify-between text-sm">
+                        <span className="text-white font-medium">New House</span>
+                        <span className="text-primary font-bold">85%</span>
+                      </div>
+                      <div className="h-2 w-full overflow-hidden rounded-full bg-gray-900">
+                        <div className="liquid-bar h-full rounded-full" style={{ width: '85%' }}></div>
+                      </div>
+                      <p className="text-[10px] font-bold text-gray-500 text-right uppercase tracking-widest">
+                        $450k / $520k
+                      </p>
+                    </div>
+                    <div className="space-y-3">
+                      <div className="flex justify-between text-sm">
+                        <span className="text-white font-medium">Dream Vacation</span>
+                        <span className="text-primary font-bold">42%</span>
+                      </div>
+                      <div className="h-2 w-full overflow-hidden rounded-full bg-gray-900">
+                        <div className="liquid-bar h-full rounded-full" style={{ width: '42%' }}></div>
+                      </div>
+                      <p className="text-[10px] font-bold text-gray-500 text-right uppercase tracking-widest">
+                        $4.2k / $10k
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="lg:col-span-1">
+                <div className="flex items-center justify-between mb-6">
+                  <h2 className="text-xl font-bold text-white">Recent Activity</h2>
+                  <button 
+                    onClick={() => navigate('/transactions')}
+                    className="text-sm font-bold text-gray-500 hover:text-white transition-colors uppercase tracking-tight"
+                  >
+                    See All
+                  </button>
+                </div>
+                <div className="flex flex-col gap-3">
+                  {transactions.map((transaction) => (
+                    <div
+                      key={transaction.id}
+                      className="group flex items-center justify-between rounded-xl bg-white/5 p-4 transition-all hover:bg-white/10 hover:shadow-[0_0_15px_rgba(0,0,0,0.3)] border border-transparent hover:border-white/5"
+                    >
+                      <div className="flex items-center gap-4">
+                        <div className={`flex size-10 items-center justify-center rounded-full ${getColorForCategory(transaction.category)}`}>
+                          <span className="material-symbols-outlined text-[20px]">
+                            {getIconForCategory(transaction.category)}
                           </span>
                         </div>
+                        <div>
+                          <p className="text-sm font-bold text-white">{transaction.note || transaction.category}</p>
+                          <p className="text-xs text-gray-500">{transaction.category}</p>
+                        </div>
                       </div>
-                    )}
-                  </div>
-                );
-              })}
+                      <div className="text-right">
+                        <p className={`text-sm font-bold ${transaction.type === 'income' ? 'text-primary' : 'text-white'}`}>
+                          {transaction.type === 'income' ? '+' : '-'}${transaction.amount.toFixed(2)}
+                        </p>
+                        <p className="text-[10px] font-bold text-gray-600 uppercase">{formatDate(transaction.date)}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
-          )}
-        </div>
-      </div>
-
-      {/* Modal */}
-      {showModal && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-[#1a1d24] border border-white/10 rounded-2xl p-6 w-full max-w-md shadow-2xl">
-            <div className="flex items-center justify-between mb-6">
-              <h2 className="text-2xl font-bold text-white">
-                {editingAccount ? 'Edit Account' : 'Create Account'}
-              </h2>
-              <button
-                onClick={() => setShowModal(false)}
-                className="p-2 hover:bg-white/5 rounded-lg transition-colors text-slate-400 hover:text-white"
-              >
-                <X size={20} />
-              </button>
-            </div>
-
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-slate-300 mb-2">
-                  Account Name
-                </label>
-                <input
-                  type="text"
-                  value={formData.name}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  className="w-full bg-[#0f1115] border border-white/10 rounded-lg px-4 py-3 text-slate-200 placeholder-slate-500 focus:outline-none focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20"
-                  placeholder="e.g., Savings Account"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-slate-300 mb-2">
-                  Account Type
-                </label>
-                <select
-                  value={formData.type}
-                  onChange={(e) => setFormData({ ...formData, type: e.target.value })}
-                  className="w-full bg-[#0f1115] border border-white/10 rounded-lg px-4 py-3 text-slate-200 focus:outline-none focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20"
-                >
-                  <option value="checking">Checking</option>
-                  <option value="savings">Savings</option>
-                  <option value="cash">Cash</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-slate-300 mb-2">
-                  Initial Balance
-                </label>
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  value={formData.balance || ''}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    if (val === '' || /^\d*\.?\d*$/.test(val)) {
-                      setFormData({ ...formData, balance: val === '' ? 0 : parseFloat(val) || 0 });
-                    }
-                  }}
-                  className="w-full bg-[#0f1115] border border-white/10 rounded-lg px-4 py-3 text-slate-200 placeholder-slate-500 focus:outline-none focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20"
-                  placeholder="0.00"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-slate-300 mb-2">
-                  Goal (Optional)
-                </label>
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  value={formData.goal || ''}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    if (val === '' || /^\d*\.?\d*$/.test(val)) {
-                      setFormData({ ...formData, goal: val === '' ? 0 : parseFloat(val) || 0 });
-                    }
-                  }}
-                  className="w-full bg-[#0f1115] border border-white/10 rounded-lg px-4 py-3 text-slate-200 placeholder-slate-500 focus:outline-none focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20"
-                  placeholder="0.00"
-                />
-              </div>
-
-              <div className="flex gap-3 pt-4">
-                <button
-                  type="button"
-                  onClick={() => setShowModal(false)}
-                  className="flex-1 px-4 py-3 bg-white/5 hover:bg-white/10 border border-white/10 text-slate-300 rounded-lg transition-all"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="flex-1 px-4 py-3 bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 text-white font-semibold rounded-lg transition-all shadow-lg shadow-emerald-500/30"
-                >
-                  {editingAccount ? 'Update' : 'Create'}
-                </button>
-              </div>
-            </form>
           </div>
         </div>
-      )}
+      </div>
     </div>
   );
 };

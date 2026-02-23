@@ -12,6 +12,10 @@ export default {
         'dark-sidebar': '#1a1d24',
         'green-accent': '#10b981',
         'blue-accent': '#3b82f6',
+        'primary': '#0df259',
+        'teal': {
+          500: '#2dd4bf',
+        },
       }
     },
   },
