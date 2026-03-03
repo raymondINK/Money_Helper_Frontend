@@ -55,6 +55,13 @@ export const DashboardEnhanced: React.FC = () => {
     });
   };
 
+  // Persist the currently-selected account so BudgetDetailsPage can read it
+  const persistAccountForBudgetDetails = (accountId: number | 'all') => {
+    if (accountId !== 'all') {
+      localStorage.setItem('budgetDetailsAccountId', String(accountId));
+    }
+  };
+
   const computeMetrics = (txList: Transaction[], accs: Account[], accountId: number | 'all') => {
     const now = new Date();
     const currentMonth = now.getMonth();
@@ -125,6 +132,11 @@ export const DashboardEnhanced: React.FC = () => {
 
   const handleAccountChange = (accountId: number | 'all') => {
     setSelectedAccountId(accountId);
+    if (accountId !== 'all') {
+      localStorage.setItem('budgetDetailsAccountId', String(accountId));
+    } else {
+      localStorage.removeItem('budgetDetailsAccountId');
+    }
   };
 
   const handleAddTransaction = async () => {

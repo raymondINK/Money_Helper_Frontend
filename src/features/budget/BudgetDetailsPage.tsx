@@ -93,13 +93,16 @@ const BudgetDetailsPage: React.FC = () => {
       setAccounts(accountsRes.data);
       setCurrency(settingsRes.data.currency || 'RM');
       
-      console.log('Accounts loaded:', accountsRes.data);
+      // Respect the account the user had selected on the Dashboard
+      const persistedId = localStorage.getItem('budgetDetailsAccountId');
       
-      // If accounts exist, load budget data for the first account
       if (accountsRes.data && accountsRes.data.length > 0) {
-        const firstAccount = accountsRes.data[0];
-        setSelectedAccount(firstAccount.id);
-        await loadBudgetData(firstAccount.id);
+        const preferred = persistedId
+          ? accountsRes.data.find((a: Account) => a.id === parseInt(persistedId))
+          : null;
+        const startAccount = preferred || accountsRes.data[0];
+        setSelectedAccount(startAccount.id);
+        await loadBudgetData(startAccount.id);
       } else {
         console.warn('No accounts found. User needs to create an account first.');
       }
@@ -229,25 +232,9 @@ const BudgetDetailsPage: React.FC = () => {
     );
   };
 
-  // When total budget changes, proportionally redistribute amounts across categories
+  // When total budget changes, just update the budget cap — do NOT touch category amounts
   const handleTotalBudgetChange = (newTotal: string) => {
     setEditBudgetAmount(newTotal);
-    const newTotalNum = parseFloat(newTotal) || 0;
-    if (newTotalNum > 0 && editCategoryAllocations.length > 0) {
-      const currentTotal = editCategoryAllocations.reduce((s, c) => s + c.amount, 0);
-      if (currentTotal > 0) {
-        setEditCategoryAllocations(prev =>
-          prev.map(cat => ({
-            ...cat,
-            amount: parseFloat(((cat.amount / currentTotal) * newTotalNum).toFixed(2))
-          }))
-        );
-      } else {
-        // Distribute evenly if all zeros
-        const even = parseFloat((newTotalNum / editCategoryAllocations.length).toFixed(2));
-        setEditCategoryAllocations(prev => prev.map(cat => ({ ...cat, amount: even })));
-      }
-    }
   };
 
   const handleCreateBudget = async () => {
@@ -286,15 +273,33 @@ const BudgetDetailsPage: React.FC = () => {
 
   const handleSaveBudgetChanges = async () => {
     if (!selectedAccount) return;
+
+    // Guard: category amounts must not exceed total budget
+    const totalBudgetNum = parseFloat(editBudgetAmount) || 0;
+    const allocatedTotal = editCategoryAllocations.reduce((s, c) => s + c.amount, 0);
+    if (allocatedTotal > totalBudgetNum) {
+      alert(`Total allocated (${currency} ${allocatedTotal.toFixed(2)}) exceeds the monthly budget (${currency} ${totalBudgetNum.toFixed(2)}). Please adjust category amounts.`);
+      return;
+    }
     
     try {
-      // Update each budget category with name, icon, and amount
+      // IDs created with Date.now() are > 1e12 — those are new categories, use POST
       for (const category of editCategoryAllocations) {
-        await api.put(`/budgets/${category.id}`, {
-          name: category.name,
-          icon: category.icon,
-          budget_amount: category.amount
-        });
+        const isNew = category.id > 1e12;
+        if (isNew) {
+          await api.post('/budgets', {
+            name: category.name,
+            icon: category.icon,
+            budget_amount: category.amount,
+            account_id: selectedAccount
+          });
+        } else {
+          await api.put(`/budgets/${category.id}`, {
+            name: category.name,
+            icon: category.icon,
+            budget_amount: category.amount
+          });
+        }
       }
       
       // Reload budget data
@@ -373,6 +378,34 @@ const BudgetDetailsPage: React.FC = () => {
               </button>
             </nav>
           </div>
+
+          {/* Account switcher in header */}
+          {accounts.length > 1 && (
+            <div className="relative">
+              <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm pointer-events-none">account_balance_wallet</span>
+              <select
+                value={selectedAccount || ''}
+                onChange={(e) => {
+                  const id = parseInt(e.target.value);
+                  setSelectedAccount(id);
+                  localStorage.setItem('budgetDetailsAccountId', String(id));
+                  loadBudgetData(id);
+                }}
+                className="bg-white/5 border border-white/10 rounded-xl pl-9 pr-8 py-2 text-sm text-white appearance-none focus:ring-2 focus:ring-purple-500/50 outline-none"
+              >
+                {accounts.map(acc => (
+                  <option key={acc.id} value={acc.id}>{acc.name}</option>
+                ))}
+              </select>
+              <span className="material-symbols-outlined absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 text-sm pointer-events-none">expand_more</span>
+            </div>
+          )}
+          {accounts.length === 1 && selectedAccount && (
+            <div className="flex items-center gap-2 px-4 py-2 bg-white/5 rounded-xl border border-white/10">
+              <span className="material-symbols-outlined text-purple-400 text-sm">account_balance_wallet</span>
+              <span className="text-sm text-white font-medium">{accounts.find(a => a.id === selectedAccount)?.name}</span>
+            </div>
+          )}
         </div>
 
         {/* Main Content */}
@@ -820,8 +853,8 @@ const BudgetDetailsPage: React.FC = () => {
 
       {/* Edit Budget Modal */}
       {showEditModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-          <div className="w-full max-w-[560px] glass-card rounded-[32px] overflow-hidden shadow-2xl border-white/20">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ backdropFilter: 'blur(20px)', backgroundColor: 'rgba(0,0,0,0.75)' }}>
+          <div className="w-full max-w-[560px] rounded-[32px] overflow-hidden shadow-2xl" style={{ background: 'rgba(14,14,14,0.92)', backdropFilter: 'blur(32px)', border: '1px solid rgba(255,255,255,0.12)' }}>
             {/* Modal Header */}
             <div className="px-8 pt-8 pb-6 flex items-center justify-between border-b border-white/10">
               <div>
@@ -878,9 +911,16 @@ const BudgetDetailsPage: React.FC = () => {
                     <label className="text-[11px] font-bold text-gray-400 uppercase tracking-widest block">
                       Category Allocations
                     </label>
-                    <span className="text-[11px] font-bold text-[#00FF88] uppercase tracking-widest">
-                      {((totalAllocated / parseFloat(editBudgetAmount || '1')) * 100).toFixed(0)}% Allocated
-                    </span>
+                    {(() => {
+                      const cap = parseFloat(editBudgetAmount) || 0;
+                      const remaining = cap - totalAllocated;
+                      const over = remaining < 0;
+                      return (
+                        <span className={`text-[11px] font-bold uppercase tracking-widest ${ over ? 'text-red-400' : 'text-[#00FF88]'}`}>
+                          {over ? `Over by ${currency} ${Math.abs(remaining).toFixed(2)}` : `Remaining: ${currency} ${remaining.toFixed(2)}`}
+                        </span>
+                      );
+                    })()}
                   </div>
 
                   <div className="space-y-4">
@@ -904,10 +944,20 @@ const BudgetDetailsPage: React.FC = () => {
                                   inputMode="decimal"
                                   value={category.amount}
                                   onChange={(e) => {
-                                    const value = e.target.value.replace(/[^0-9.]/g, '');
-                                    handleUpdateCategoryAmount(category.id, parseFloat(value) || 0);
+                                    const raw = parseFloat(e.target.value.replace(/[^0-9.]/g, '')) || 0;
+                                    const cap = parseFloat(editBudgetAmount) || 0;
+                                    // Sum of all OTHER categories
+                                    const othersTotal = editCategoryAllocations
+                                      .filter(c => c.id !== category.id)
+                                      .reduce((s, c) => s + c.amount, 0);
+                                    const maxAllowed = Math.max(0, cap - othersTotal);
+                                    handleUpdateCategoryAmount(category.id, Math.min(raw, maxAllowed));
                                   }}
-                                  className="w-24 text-sm font-bold text-white bg-white/5 border border-white/10 rounded-lg px-2 py-1 text-right focus:ring-2 focus:ring-purple-500 outline-none"
+                                  className={`w-24 text-sm font-bold text-white bg-white/5 border rounded-lg px-2 py-1 text-right focus:ring-2 outline-none ${
+                                    category.amount > (parseFloat(editBudgetAmount) || 0)
+                                      ? 'border-red-500/60 focus:ring-red-500'
+                                      : 'border-white/10 focus:ring-purple-500'
+                                  }`}
                                 />
                               </div>
                               <div className="w-full h-1.5 bg-white/5 rounded-full overflow-hidden">
