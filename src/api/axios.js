@@ -1,7 +1,11 @@
 import axios from 'axios';
 
+if (!import.meta.env.VITE_API_URL) {
+    console.warn('[api] VITE_API_URL is not set. API calls will fail in production.');
+}
+
 const api = axios.create({
-    baseURL: import.meta.env.VITE_API_URL || 'http://localhost:8001',
+    baseURL: import.meta.env.VITE_API_URL,
     withCredentials: true,
     headers: {
         'Content-Type': 'application/json',

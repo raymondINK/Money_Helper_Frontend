@@ -129,7 +129,8 @@ Examples:
 
       console.log('Calling LLM with:', { hasImage: !!imageBase64, textLength: text?.length });
 
-      const response = await fetch('http://127.0.0.1:1234/v1/chat/completions', {
+      const llmUrl = import.meta.env.VITE_LLM_URL || 'http://127.0.0.1:1234';
+      const response = await fetch(`${llmUrl}/v1/chat/completions`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
