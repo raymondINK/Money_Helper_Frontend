@@ -1,8 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Sidebar, Header } from '../../shared/components';
 import { useTheme } from '../../theme';
 import api from '../../api/axios';
+import { useAppData } from '../../shared/context/AppDataContext';
+import { getPreviousCycleRange, toApiDateRange, formatDateForApi } from '../../shared/utils/salaryCycle';
 
 interface Account {
   id: number;
@@ -23,14 +25,19 @@ interface Transaction {
   account_id: number;
 }
 
+interface BalanceSnapshot {
+  date: string;
+  balance: number;
+}
+
 const AccountsPage: React.FC = () => {
-  const [user, setUser] = useState<any>(null);
-  const [accounts, setAccounts] = useState<Account[]>([]);
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const { user, accounts, transactions: allTransactions, salaryPeriod: period, refresh } = useAppData();
   const [selectedAccount, setSelectedAccount] = useState<Account | null>(null);
   const [totalBalance, setTotalBalance] = useState(0);
   const [monthlySpent, setMonthlySpent] = useState(0);
   const [monthlyLimit, setMonthlyLimit] = useState(0);
+  const [trendPct, setTrendPct] = useState<number | null>(null);
+  const [chartData, setChartData] = useState<BalanceSnapshot[]>([]);
   const [showAddModal, setShowAddModal] = useState(false);
   const [addLoading, setAddLoading] = useState(false);
   const [newAccount, setNewAccount] = useState({
@@ -51,56 +58,107 @@ const AccountsPage: React.FC = () => {
     });
   };
 
+  // Derive totals from context accounts
   useEffect(() => {
-    const fetchData = async () => {
-      const token = localStorage.getItem('token');
-      if (!token) {
-        navigate('/login');
-        return;
-      }
+    if (accounts.length === 0) return;
+    const total = accounts.reduce((sum, acc) => sum + acc.balance, 0);
+    setTotalBalance(total);
+    const totalAllowance = accounts.reduce((sum, acc) => sum + (acc.monthly_allowance || 0), 0);
+    setMonthlyLimit(totalAllowance);
 
+    // Set selectedAccount using preferredAccountId or default to first
+    const saved = localStorage.getItem('preferredAccountId');
+    const preferred = saved ? accounts.find(a => a.id === parseInt(saved)) : null;
+    setSelectedAccount(prev => {
+      // Only update if not yet set, or if the previous selection is no longer valid
+      if (!prev || !accounts.some(a => a.id === prev.id)) {
+        return preferred || accounts[0];
+      }
+      // Keep current selection if still valid (refresh scenario)
+      return accounts.find(a => a.id === prev.id) || preferred || accounts[0];
+    });
+  }, [accounts]);
+
+  // Recompute period spending when salary period or transactions change
+  useEffect(() => {
+    if (period.loading) return;
+    const spent = allTransactions.filter(t => {
+      const d = new Date(t.date);
+      return t.type === 'expense' && d >= period.periodStart && d <= period.periodEnd;
+    }).reduce((sum, t) => sum + t.amount, 0);
+    setMonthlySpent(spent);
+  }, [period.loading, period.periodStart, allTransactions]);
+
+  // Fetch trend % and chart data once period and accounts are ready
+  useEffect(() => {
+    if (period.loading || accounts.length === 0) return;
+
+    let cancelled = false;
+    const load = async () => {
       try {
-        const [userRes, accountsRes, transactionsRes] = await Promise.all([
-          api.get('/auth/me'),
-          api.get('/accounts'),
-          api.get('/transactions')
+        const currentRange = toApiDateRange({ start: period.periodStart, end: period.periodEnd });
+        const prevRange = toApiDateRange(getPreviousCycleRange(new Date(), period.resetDay));
+
+        const [currentRes, prevRes] = await Promise.all([
+          api.get('/transactions/summary/period', { params: { start_date: currentRange.start_date, end_date: currentRange.end_date } }),
+          api.get('/transactions/summary/period', { params: { start_date: prevRange.start_date, end_date: prevRange.end_date } }),
         ]);
 
-        setUser(userRes.data);
-        setAccounts(accountsRes.data);
-        setTransactions(transactionsRes.data.slice(0, 5));
+        if (cancelled) return;
 
-        const total = accountsRes.data.reduce((sum: number, acc: Account) => sum + acc.balance, 0);
-        setTotalBalance(total);
+        const curNet: number = currentRes.data.net ?? 0;
+        const prevNet: number = prevRes.data.net ?? 0;
 
-        const totalAllowance = accountsRes.data.reduce(
-          (sum: number, acc: Account) => sum + (acc.monthly_allowance || 0), 0
-        );
-        setMonthlyLimit(totalAllowance);
-
-        const now = new Date();
-        const currentMonth = now.getMonth();
-        const currentYear = now.getFullYear();
-        const spent = transactionsRes.data
-          .filter((t: Transaction) => {
-            const txDate = new Date(t.date);
-            return t.type === 'expense' && txDate.getMonth() === currentMonth && txDate.getFullYear() === currentYear;
-          })
-          .reduce((sum: number, t: Transaction) => sum + t.amount, 0);
-        setMonthlySpent(spent);
-
-      } catch (err) {
-        console.error(err);
-        if ((err as any).response?.status === 401) {
-          localStorage.removeItem('token');
-          localStorage.removeItem('user');
-          navigate('/login');
+        if (prevNet !== 0) {
+          setTrendPct(((curNet - prevNet) / Math.abs(prevNet)) * 100);
+        } else if (curNet > 0) {
+          setTrendPct(100);
+        } else {
+          setTrendPct(null);
         }
+
+        const targetAccount = selectedAccount || accounts[0];
+        if (targetAccount) {
+          const startStr = formatDateForApi(period.periodStart);
+          const endStr = formatDateForApi(period.periodEnd);
+          const histRes = await api.get(`/accounts/${targetAccount.id}/balance-history-period`, {
+            params: { start_date: startStr, end_date: endStr },
+          });
+          if (!cancelled) setChartData(histRes.data);
+        }
+      } catch (err) {
+        console.error('Failed to load trend/chart data:', err);
       }
     };
 
-    fetchData();
-  }, [navigate]);
+    load();
+    return () => { cancelled = true; };
+  }, [period.loading, period.periodStart, accounts.length, selectedAccount?.id]);
+
+  const chartPoints = useMemo(() => {
+    if (chartData.length < 2) return { line: '', area: '' };
+    const balances = chartData.map(s => s.balance);
+    const minBal = Math.min(...balances);
+    const maxBal = Math.max(...balances);
+    const range = maxBal - minBal;
+    const W = 400, H = 100, margin = 10;
+    const pts = chartData.map((s, i) => {
+      const x = (i / (chartData.length - 1)) * W;
+      const y = range === 0 ? H / 2 : margin + ((maxBal - s.balance) / range) * (H - 2 * margin);
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    });
+    return { line: pts.join(' '), area: `${pts.join(' ')} 400,100 0,100` };
+  }, [chartData]);
+
+  const chartLabels = useMemo(() => {
+    if (period.loading || period.totalDays < 2) return [];
+    const n = 5;
+    return Array.from({ length: n }, (_, i) => {
+      const offset = Math.round((i / (n - 1)) * (period.totalDays - 1));
+      const d = new Date(period.periodStart.getTime() + offset * 86400000);
+      return `${String(d.getDate()).padStart(2, '0')} ${d.toLocaleString('default', { month: 'short' }).toUpperCase()}`;
+    });
+  }, [period.loading, period.periodStart, period.totalDays]);
 
   const handleAddAccount = async () => {
     if (!newAccount.name.trim()) return;
@@ -111,13 +169,8 @@ const AccountsPage: React.FC = () => {
         type: newAccount.type,
         balance: parseFloat(newAccount.balance) || 0,
       });
-      // Refresh accounts
-      const res = await api.get('/accounts');
-      setAccounts(res.data);
-      const total = res.data.reduce((sum: number, acc: Account) => sum + acc.balance, 0);
-      setTotalBalance(total);
-      const totalAllowance = res.data.reduce((sum: number, acc: Account) => sum + (acc.monthly_allowance || 0), 0);
-      setMonthlyLimit(totalAllowance);
+      // Refresh shared context — accounts + transactions updated for all pages
+      await refresh();
       setShowAddModal(false);
       setNewAccount({ name: '', type: 'checking', balance: '' });
     } catch (err) {
@@ -172,10 +225,6 @@ const AccountsPage: React.FC = () => {
 
   const usagePercentage = monthlyLimit > 0 ? Math.min(Math.round((monthlySpent / monthlyLimit) * 100), 100) : 0;
 
-  const _now = new Date();
-  const daysInCurMonth = new Date(_now.getFullYear(), _now.getMonth() + 1, 0).getDate();
-  const curMonthShort = _now.toLocaleString('default', { month: 'short' }).toUpperCase();
-
   return (
     <>
     <div className="flex h-screen bg-[#0A0A0A] overflow-hidden">
@@ -191,6 +240,7 @@ const AccountsPage: React.FC = () => {
             if (account) {
               setSelectedAccount(account);
               localStorage.setItem('selectedAccountId', accountId);
+              localStorage.setItem('preferredAccountId', accountId);
             }
           }}
         />
@@ -222,11 +272,15 @@ const AccountsPage: React.FC = () => {
                       RM {totalBalance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </h3>
                     <div className="flex items-center gap-3">
-                      <div className="flex items-center gap-1.5 rounded-full bg-purple-500/10 px-3 py-1 border border-purple-500/20">
-                        <span className="material-symbols-outlined text-purple-400 text-sm font-bold">trending_up</span>
-                        <span className="text-sm font-bold text-purple-400">+12.5%</span>
+                      <div className={`flex items-center gap-1.5 rounded-full px-3 py-1 border ${trendPct === null ? 'bg-white/5 border-white/10' : trendPct >= 0 ? 'bg-purple-500/10 border-purple-500/20' : 'bg-red-500/10 border-red-500/20'}`}>
+                        <span className={`material-symbols-outlined text-sm font-bold ${trendPct === null ? 'text-gray-500' : trendPct >= 0 ? 'text-purple-400' : 'text-red-400'}`}>
+                          {trendPct === null ? 'trending_flat' : trendPct >= 0 ? 'trending_up' : 'trending_down'}
+                        </span>
+                        <span className={`text-sm font-bold ${trendPct === null ? 'text-gray-500' : trendPct >= 0 ? 'text-purple-400' : 'text-red-400'}`}>
+                          {trendPct === null ? '—' : `${trendPct >= 0 ? '+' : ''}${trendPct.toFixed(1)}%`}
+                        </span>
                       </div>
-                      <span className="text-xs font-medium text-gray-500 uppercase tracking-tight">Monthly Trend</span>
+                      <span className="text-xs font-medium text-gray-500 uppercase tracking-tight">Cycle Trend</span>
                     </div>
                   </div>
                 </div>
@@ -239,14 +293,18 @@ const AccountsPage: React.FC = () => {
                         <stop offset="100%" stopColor="#A855F7" stopOpacity="0"></stop>
                       </linearGradient>
                     </defs>
-                    <path d="M0 80 Q 40 70, 80 85 T 160 55 T 240 75 T 320 40 T 400 60 V 100 H 0 Z" fill="url(#chartGradientAcc)"></path>
-                    <path className="chart-line" d="M0 80 Q 40 70, 80 85 T 160 55 T 240 75 T 320 40 T 400 60" fill="none" stroke="#A855F7" strokeLinecap="round" strokeWidth="3"></path>
-                    <circle className="animate-pulse" cx="160" cy="55" fill="#C084FC" r="4" style={{ filter: 'drop-shadow(0 0 6px #A855F7)' }}></circle>
-                    <circle cx="320" cy="40" fill="#C084FC" r="4" style={{ filter: 'drop-shadow(0 0 6px #A855F7)' }}></circle>
+                    {chartPoints.area ? (
+                      <>
+                        <polygon points={chartPoints.area} fill="url(#chartGradientAcc)" />
+                        <polyline points={chartPoints.line} fill="none" stroke="#A855F7" strokeLinecap="round" strokeWidth="3" />
+                      </>
+                    ) : (
+                      <line x1="0" y1="50" x2="400" y2="50" stroke="#A855F7" strokeWidth="1" strokeDasharray="4 4" strokeOpacity="0.3" />
+                    )}
                   </svg>
                   <div className="flex justify-between mt-2 px-1 text-[10px] font-bold text-gray-500 uppercase tracking-widest">
-                    {[1, 8, 15, 22, daysInCurMonth].map(d => (
-                      <span key={d}>{String(d).padStart(2,'0')} {curMonthShort}</span>
+                    {chartLabels.map((label, i) => (
+                      <span key={i}>{label}</span>
                     ))}
                   </div>
                 </div>
@@ -387,7 +445,7 @@ const AccountsPage: React.FC = () => {
                   </button>
                 </div>
                 <div className="flex flex-col gap-3">
-                  {transactions.map((transaction) => (
+                  {allTransactions.slice(0, 5).map((transaction) => (
                     <div
                       key={transaction.id}
                       className="group flex items-center justify-between rounded-xl bg-white/5 p-4 transition-all hover:bg-white/10 hover:shadow-[0_0_15px_rgba(0,0,0,0.3)] border border-transparent hover:border-white/5"

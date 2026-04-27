@@ -9,6 +9,7 @@ import {
 import { Sidebar, Toast } from '../../shared/components';
 import { useTheme } from '../../theme';
 import api from '../../api/axios';
+import { useAppData } from '../../shared/context/AppDataContext';
 
 interface UserSettings {
   id: number;
@@ -24,6 +25,7 @@ interface UserSettings {
   show_balance_on_dashboard: boolean;
   show_budget_on_dashboard: boolean;
   show_recent_transactions: boolean;
+  telegram_default_account_id?: number | null;
 }
 
 interface BudgetPeriodInfo {
@@ -55,6 +57,7 @@ const SettingsPage: React.FC = () => {
   const [budgetPeriodInfo, setBudgetPeriodInfo] = useState<BudgetPeriodInfo | null>(null);
   const navigate = useNavigate();
   const { theme, setTheme: setGlobalTheme } = useTheme();
+  const { accounts } = useAppData();
 
   const toggleSidebar = () => {
     setSidebarCollapsed(prev => {
@@ -84,6 +87,7 @@ const SettingsPage: React.FC = () => {
   const [showBalanceOnDashboard, setShowBalanceOnDashboard] = useState(true);
   const [showBudgetOnDashboard, setShowBudgetOnDashboard] = useState(true);
   const [showRecentTransactions, setShowRecentTransactions] = useState(true);
+  const [telegramDefaultAccountId, setTelegramDefaultAccountId] = useState<number | null>(null);
 
   const themeColors = [
     { name: 'Violet', value: '#8b5cf6' },
@@ -146,6 +150,7 @@ const SettingsPage: React.FC = () => {
       setShowBalanceOnDashboard(s.show_balance_on_dashboard ?? true);
       setShowBudgetOnDashboard(s.show_budget_on_dashboard ?? true);
       setShowRecentTransactions(s.show_recent_transactions ?? true);
+      setTelegramDefaultAccountId(s.telegram_default_account_id ?? null);
 
       setBudgetPeriodInfo(budgetInfoRes.data);
 
@@ -183,6 +188,7 @@ const SettingsPage: React.FC = () => {
         show_balance_on_dashboard: showBalanceOnDashboard,
         show_budget_on_dashboard: showBudgetOnDashboard,
         show_recent_transactions: showRecentTransactions,
+        telegram_default_account_id: telegramDefaultAccountId,
       });
       
       // Also save to localStorage for immediate use
@@ -286,6 +292,7 @@ const SettingsPage: React.FC = () => {
       setShowBalanceOnDashboard(s.show_balance_on_dashboard);
       setShowBudgetOnDashboard(s.show_budget_on_dashboard);
       setShowRecentTransactions(s.show_recent_transactions);
+      setTelegramDefaultAccountId(s.telegram_default_account_id ?? null);
       setToast({ message: 'Settings reset to defaults!', type: 'success' });
     } catch (err) {
       setToast({ message: 'Failed to reset settings', type: 'error' });
@@ -734,6 +741,35 @@ const SettingsPage: React.FC = () => {
           {/* Privacy & Dashboard Settings */}
           {activeSection === 'notifications' && (
             <div className="space-y-6">
+              {/* Telegram Integration */}
+              <div className={`${theme === 'dark' ? 'bg-[#1a1d24]/80 border-white/10' : 'bg-white border-gray-200'} border rounded-2xl p-6 space-y-4`}>
+                <div className="flex items-center gap-3 mb-2">
+                  <Bell size={20} className="text-blue-400" />
+                  <h3 className="text-lg font-semibold">Telegram Bot</h3>
+                </div>
+                <p className={`${theme === 'dark' ? 'text-slate-400' : 'text-gray-500'} text-sm mb-4`}>
+                  Choose which account Telegram bot transactions are added to by default.
+                </p>
+                <div>
+                  <label className={`block text-sm font-medium mb-2 ${theme === 'dark' ? 'text-slate-300' : 'text-gray-700'}`}>
+                    Default Account for Telegram Transactions
+                  </label>
+                  <select
+                    value={telegramDefaultAccountId ?? ''}
+                    onChange={(e) => setTelegramDefaultAccountId(e.target.value ? Number(e.target.value) : null)}
+                    className={`w-full rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50 ${theme === 'dark' ? 'bg-white/5 border border-white/10 text-white' : 'bg-gray-50 border border-gray-200 text-gray-800'}`}
+                  >
+                    <option value="">— Use server default (MY_DEFAULT_ACCOUNT_ID env) —</option>
+                    {accounts.map(acc => (
+                      <option key={acc.id} value={acc.id}>{acc.name}</option>
+                    ))}
+                  </select>
+                  <p className={`mt-1.5 text-xs ${theme === 'dark' ? 'text-slate-500' : 'text-gray-400'}`}>
+                    Save settings after changing this value.
+                  </p>
+                </div>
+              </div>
+
               {/* Dashboard Visibility */}
               <div className={`${theme === 'dark' ? 'bg-[#1a1d24]/80 border-white/10' : 'bg-white border-gray-200'} border rounded-2xl p-6 space-y-4`}>
                 <div className="flex items-center gap-3 mb-2">

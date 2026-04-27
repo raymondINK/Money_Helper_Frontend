@@ -906,7 +906,7 @@ const RecurringPage: React.FC = () => {
                   <select value={formData.category} onChange={e => setFormData({ ...formData, category: e.target.value })}
                     className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-violet-500/50">
                     <option value="">Select</option>
-                    {budgets.map(b => <option key={b.id} value={b.name}>{b.name}</option>)}
+                    {[...new Map(budgets.map(b => [b.name, b])).values()].map(b => <option key={b.id} value={b.name}>{b.name}</option>)}
                     <option value="Entertainment">Entertainment</option>
                     <option value="Software">Software</option>
                     <option value="Other">Other</option>

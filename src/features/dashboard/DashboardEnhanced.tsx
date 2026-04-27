@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Sidebar } from '../../shared/components';
 import api from '../../api/axios';
+import { useAppData } from '../../shared/context/AppDataContext';
 
 interface Account {
   id: number;
@@ -32,12 +33,13 @@ interface Budget {
 }
 
 export const DashboardEnhanced: React.FC = () => {
-  const [user, setUser] = useState<any>(null);
-  const [accounts, setAccounts] = useState<Account[]>([]);
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [allTransactions, setAllTransactions] = useState<Transaction[]>([]);
+  const { user, accounts, transactions: allTransactions, salaryPeriod: period, refresh } = useAppData();
   const [budgets, setBudgets] = useState<Budget[]>([]);
-  const [selectedAccountId, setSelectedAccountId] = useState<number | 'all'>('all');
+  const [selectedAccountId, setSelectedAccountId] = useState<number | 'all'>(() => {
+    const saved = localStorage.getItem('preferredAccountId');
+    return saved ? parseInt(saved) : 'all';
+  });
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [monthlySpent, setMonthlySpent] = useState(0);
   const [monthlyLimit, setMonthlyLimit] = useState(0);
   const [showAddTxModal, setShowAddTxModal] = useState(false);
@@ -62,11 +64,7 @@ export const DashboardEnhanced: React.FC = () => {
     }
   };
 
-  const computeMetrics = (txList: Transaction[], accs: Account[], accountId: number | 'all') => {
-    const now = new Date();
-    const currentMonth = now.getMonth();
-    const currentYear = now.getFullYear();
-
+  const computeMetrics = (txList: Transaction[], accs: Account[], accountId: number | 'all', periodStart: Date, periodEnd: Date) => {
     const filteredTx = accountId === 'all'
       ? txList
       : txList.filter(t => t.account_id === accountId);
@@ -74,7 +72,7 @@ export const DashboardEnhanced: React.FC = () => {
     const spent = filteredTx
       .filter(t => {
         const txDate = new Date(t.date);
-        return t.type === 'expense' && txDate.getMonth() === currentMonth && txDate.getFullYear() === currentYear;
+        return t.type === 'expense' && txDate >= periodStart && txDate <= periodEnd;
       })
       .reduce((sum, t) => sum + t.amount, 0);
     setMonthlySpent(spent);
@@ -88,30 +86,13 @@ export const DashboardEnhanced: React.FC = () => {
   };
 
   useEffect(() => {
-    const fetchData = async () => {
+    const fetchBudgets = async () => {
       const token = localStorage.getItem('token');
-      if (!token) {
-        navigate('/login');
-        return;
-      }
-
+      if (!token) { navigate('/login'); return; }
       try {
-        const [userRes, accountsRes, transactionsRes, budgetsRes] = await Promise.all([
-          api.get('/auth/me'),
-          api.get('/accounts'),
-          api.get('/transactions'),
-          api.get('/budgets'),
-        ]);
-
-        setUser(userRes.data);
-        setAccounts(accountsRes.data);
-        setAllTransactions(transactionsRes.data);
+        const budgetsRes = await api.get('/budgets');
         setBudgets(budgetsRes.data);
-
-        computeMetrics(transactionsRes.data, accountsRes.data, 'all');
-
       } catch (err) {
-        console.error(err);
         if ((err as any).response?.status === 401) {
           localStorage.removeItem('token');
           localStorage.removeItem('user');
@@ -119,23 +100,42 @@ export const DashboardEnhanced: React.FC = () => {
         }
       }
     };
-
-    fetchData();
+    fetchBudgets();
   }, [navigate]);
 
-  // Recompute metrics when account selection changes
+  // Validate stored preferredAccountId against actual accounts; fall back to 'all' if stale
   useEffect(() => {
-    if (allTransactions.length > 0 || accounts.length > 0) {
-      computeMetrics(allTransactions, accounts, selectedAccountId);
+    if (accounts.length === 0) return;
+    const saved = localStorage.getItem('preferredAccountId');
+    if (saved) {
+      const id = parseInt(saved);
+      const exists = accounts.some(a => a.id === id);
+      if (!exists) {
+        localStorage.removeItem('preferredAccountId');
+        setSelectedAccountId('all');
+      }
     }
-  }, [selectedAccountId]);
+  }, [accounts]);
+
+  // Recompute metrics when account selection or salary period changes
+  useEffect(() => {
+    if (period.loading) return;
+    if (allTransactions.length > 0 || accounts.length > 0) {
+      computeMetrics(allTransactions, accounts, selectedAccountId, period.periodStart, period.periodEnd);
+    }
+    setTransactions(
+      (selectedAccountId === 'all' ? allTransactions : allTransactions.filter(t => t.account_id === selectedAccountId)).slice(0, 4)
+    );
+  }, [selectedAccountId, period.loading, period.periodStart, allTransactions, accounts]);
 
   const handleAccountChange = (accountId: number | 'all') => {
     setSelectedAccountId(accountId);
     if (accountId !== 'all') {
       localStorage.setItem('budgetDetailsAccountId', String(accountId));
+      localStorage.setItem('preferredAccountId', String(accountId));
     } else {
       localStorage.removeItem('budgetDetailsAccountId');
+      localStorage.removeItem('preferredAccountId');
     }
   };
 
@@ -151,14 +151,11 @@ export const DashboardEnhanced: React.FC = () => {
         date: txForm.date,
         account_id: parseInt(txForm.account_id),
       });
-      // Refresh transactions and budgets
-      const [transactionsRes, budgetsRes] = await Promise.all([
-        api.get('/transactions'),
-        api.get('/budgets'),
-      ]);
-      setAllTransactions(transactionsRes.data);
+      // Refresh shared context (updates accounts + transactions for all pages)
+      await refresh();
+      // Refresh page-specific budgets
+      const budgetsRes = await api.get('/budgets');
       setBudgets(budgetsRes.data);
-      computeMetrics(transactionsRes.data, accounts, selectedAccountId);
       setShowAddTxModal(false);
       setTxForm({ type: 'expense', category: '', amount: '', note: '', date: new Date().toISOString().split('T')[0], account_id: '' });
     } catch (err) {
@@ -169,11 +166,13 @@ export const DashboardEnhanced: React.FC = () => {
   };
 
   const now = new Date();
-  const currentMonthLabel = now.toLocaleString('default', { month: 'short' }) + ' ' + now.getFullYear();
-  const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-  const dayOfMonth = now.getDate();
-  const daysLeft = daysInMonth - dayOfMonth;
-  const monthProgress = Math.round((dayOfMonth / daysInMonth) * 100);
+  // Use salary period from hook; fall back to calendar month while loading
+  const currentMonthLabel = period.loading
+    ? now.toLocaleString('default', { month: 'short' }) + ' ' + now.getFullYear()
+    : `${period.periodStart.toLocaleString('default', { month: 'short' })} ${period.periodStart.getDate()} – ${period.periodEnd.toLocaleString('default', { month: 'short' })} ${period.periodEnd.getDate()}`;
+  const daysLeft = period.daysLeft;
+  const monthProgress = period.periodProgress;
+  const dayOfMonth = period.daysElapsed;
 
   const usagePercentage = monthlyLimit > 0 ? Math.min(Math.round((monthlySpent / monthlyLimit) * 100), 100) : 0;
   const remaining = Math.max(monthlyLimit - monthlySpent, 0);
@@ -377,7 +376,7 @@ export const DashboardEnhanced: React.FC = () => {
               <div className="space-y-2">
                 <div className="flex items-center justify-between text-xs font-semibold uppercase tracking-widest text-gray-500">
                   <span>Month Progress</span>
-                  <span>Day {dayOfMonth} of {daysInMonth}</span>
+                  <span>Day {dayOfMonth} of {period.totalDays}</span>
                 </div>
                 <div className="relative h-1.5 w-full bg-white/5 rounded-full overflow-hidden">
                   <div

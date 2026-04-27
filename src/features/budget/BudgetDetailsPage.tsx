@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Sidebar from '../../shared/components/Sidebar';
 import api from '../../api/axios';
+import { useAppData } from '../../shared/context/AppDataContext';
 
 interface BudgetCategory {
   id: number;
@@ -11,13 +12,6 @@ interface BudgetCategory {
   allocated: number;
   spent: number;
   limit: number;
-}
-
-interface Account {
-  id: number;
-  name: string;
-  type: string;
-  balance: number;
 }
 
 interface BudgetResponse {
@@ -41,26 +35,21 @@ interface BudgetSummary {
 
 const BudgetDetailsPage: React.FC = () => {
   const navigate = useNavigate();
-  const [user, setUser] = useState<any>(null);
+  const { user, accounts, salaryPeriod } = useAppData();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     const saved = localStorage.getItem('sidebarCollapsed');
     return saved ? JSON.parse(saved) : false;
   });
   const [showBudgetModal, setShowBudgetModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
-  const [newBudgetAmount, setNewBudgetAmount] = useState('4500');
-  const [editBudgetAmount, setEditBudgetAmount] = useState('4500');
-  const [categoryAllocations, setCategoryAllocations] = useState([
-    { name: 'Housing', icon: 'home', color: 'blue', amount: 1800 },
-    { name: 'Dining', icon: 'restaurant', color: 'orange', amount: 650 },
-    { name: 'Groceries', icon: 'shopping_cart', color: 'green', amount: 800 },
-  ]);
+  const [newBudgetAmount, setNewBudgetAmount] = useState('');
+  const [editBudgetAmount, setEditBudgetAmount] = useState('');
+  const [categoryAllocations, setCategoryAllocations] = useState<Array<{name: string; icon: string; color: string; amount: number}>>([]);
   const [editCategoryAllocations, setEditCategoryAllocations] = useState<Array<{id: number; name: string; icon: string; color: string; amount: number; spent: number}>>([]);
-  const [totalBudget, setTotalBudget] = useState(4500);
-  const [spent, setSpent] = useState(3240);
-  const [dailyAverage, setDailyAverage] = useState(108.40);
-  const [projectedSavings, setProjectedSavings] = useState(842.15);
-  const [accounts, setAccounts] = useState<Account[]>([]);
+  const [totalBudget, setTotalBudget] = useState(0);
+  const [spent, setSpent] = useState(0);
+  const [dailyAverage, setDailyAverage] = useState(0);
+  const [projectedSavings, setProjectedSavings] = useState(0);
   const [selectedAccount, setSelectedAccount] = useState<number | null>(null);
   const [budgets, setBudgets] = useState<BudgetResponse[]>([]);
   const [loading, setLoading] = useState(true);
@@ -71,65 +60,46 @@ const BudgetDetailsPage: React.FC = () => {
   const [showAddCategory, setShowAddCategory] = useState(false);
   const [editingCategoryId, setEditingCategoryId] = useState<number | null>(null);
 
-  // Debug: Log state changes
+  // Load budget-specific data (settings + budgets) once accounts are available
   useEffect(() => {
-    console.log('Accounts state updated:', accounts);
-    console.log('Selected account:', selectedAccount);
-  }, [accounts, selectedAccount]);
-
-  useEffect(() => {
-    fetchData();
-  }, []);
-
-  const fetchData = async () => {
-    try {
-      setLoading(true);
-      const [userRes, accountsRes, settingsRes] = await Promise.all([
-        api.get('/auth/me'),
-        api.get('/accounts'),
-        api.get('/settings')
-      ]);
-      setUser(userRes.data);
-      setAccounts(accountsRes.data);
-      setCurrency(settingsRes.data.currency || 'RM');
-      
-      // Respect the account the user had selected on the Dashboard
-      const persistedId = localStorage.getItem('budgetDetailsAccountId');
-      
-      if (accountsRes.data && accountsRes.data.length > 0) {
-        const preferred = persistedId
-          ? accountsRes.data.find((a: Account) => a.id === parseInt(persistedId))
-          : null;
-        const startAccount = preferred || accountsRes.data[0];
-        setSelectedAccount(startAccount.id);
-        await loadBudgetData(startAccount.id);
-      } else {
-        console.warn('No accounts found. User needs to create an account first.');
+    if (accounts.length === 0) return;
+    const init = async () => {
+      try {
+        setLoading(true);
+        const settingsRes = await api.get('/settings');
+        setCurrency(settingsRes.data.currency || 'RM');
+      } catch {
+        // currency stays 'RM'
       }
-    } catch (error) {
-      console.error('Error fetching data:', error);
-    } finally {
+      // Determine which account to show
+      const persistedId = localStorage.getItem('budgetDetailsAccountId') || localStorage.getItem('preferredAccountId');
+      const preferred = persistedId
+        ? accounts.find(a => a.id === parseInt(persistedId))
+        : null;
+      const startAccount = preferred || accounts[0];
+      setSelectedAccount(startAccount.id);
+      await loadBudgetData(startAccount.id);
       setLoading(false);
-    }
-  };
+    };
+    init();
+    // Only re-run when accounts list itself changes (e.g., after context refresh)
+  }, [accounts]);
 
   const loadBudgetData = async (accountId: number) => {
     try {
       const summaryRes = await api.get(`/budgets/summary?account_id=${accountId}`);
       const summary: BudgetSummary = summaryRes.data;
-      
-      console.log('Budget summary loaded:', summary);
-      
+
       setBudgets(summary.budgets);
       setTotalBudget(summary.total_budget);
       setSpent(summary.total_spent);
-      
-      // Calculate daily average and projected savings (assuming 30-day month)
-      const daysInMonth = 30;
-      const avgDaily = summary.total_spent / daysInMonth;
+
+      // Use salary period days from context; fall back to 30
+      const days = salaryPeriod.loading ? 30 : salaryPeriod.totalDays;
+      const avgDaily = days > 0 ? summary.total_spent / days : 0;
       setDailyAverage(avgDaily);
       setProjectedSavings(summary.remaining);
-      
+
       // Prepare edit allocations
       const allocations = summary.budgets.map(b => ({
         id: b.id,
@@ -141,10 +111,6 @@ const BudgetDetailsPage: React.FC = () => {
       }));
       setEditCategoryAllocations(allocations);
       setEditBudgetAmount(summary.total_budget.toString());
-      
-      if (summary.budgets.length === 0) {
-        console.log('No budgets found for this account. User should create budgets.');
-      }
     } catch (error) {
       console.error('Error loading budget data:', error);
     }
@@ -171,7 +137,7 @@ const BudgetDetailsPage: React.FC = () => {
     localStorage.setItem('sidebarCollapsed', JSON.stringify(newCollapsed));
   };
 
-  const spentPercentage = (spent / totalBudget) * 100;
+  const spentPercentage = totalBudget > 0 ? Math.min((spent / totalBudget) * 100, 100) : 0;
   const strokeDashoffset = 502 - (502 * spentPercentage) / 100;
 
   const getColorClasses = (color: string) => {
@@ -259,12 +225,8 @@ const BudgetDetailsPage: React.FC = () => {
       setShowBudgetModal(false);
       
       // Reset form
-      setCategoryAllocations([
-        { name: 'Housing', icon: 'home', color: 'blue', amount: 1800 },
-        { name: 'Dining', icon: 'restaurant', color: 'orange', amount: 650 },
-        { name: 'Groceries', icon: 'shopping_cart', color: 'green', amount: 800 },
-      ]);
-      setNewBudgetAmount('4500');
+      setCategoryAllocations([]);
+      setNewBudgetAmount('');
     } catch (error: any) {
       console.error('Error creating budgets:', error);
       alert(error.response?.data?.detail || 'Failed to create budget. Please try again.');

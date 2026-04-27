@@ -127,8 +127,6 @@ Examples:
         });
       }
 
-      console.log('Calling LLM with:', { hasImage: !!imageBase64, textLength: text?.length });
-
       const llmUrl = import.meta.env.VITE_LLM_URL || 'http://127.0.0.1:1234';
       const response = await fetch(`${llmUrl}/v1/chat/completions`, {
         method: 'POST',
@@ -145,7 +143,6 @@ Examples:
       }
 
       const data = await response.json();
-      console.log('LLM response:', data);
       const content = data.choices?.[0]?.message?.content || '';
       setLlmResponse(content);
 
@@ -657,11 +654,11 @@ Examples:
     }
   };
 
-  // Get all categories
+  // Get all categories (deduplicated by name)
   const allCategories = [
     { name: 'General', icon: '📦' },
     { name: 'Income', icon: '💰' },
-    ...budgets.map(b => ({ name: b.name, icon: b.icon || '📦' }))
+    ...[...new Map(budgets.map(b => [b.name, b])).values()].map(b => ({ name: b.name, icon: b.icon || '📦' }))
   ];
 
   return (

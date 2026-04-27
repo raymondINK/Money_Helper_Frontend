@@ -296,7 +296,6 @@ const TransactionsPage = () => {
 
       // If it's a network error, the transaction might still have been created
       if (err.message === 'Network Error' || err.code === 'ERR_NETWORK') {
-        console.log('Network error detected, but transaction may have been saved. Refreshing...');
         setShowModal(false);
         await loadData();
       } else {
@@ -884,7 +883,7 @@ const TransactionsPage = () => {
                 >
                   <option value="General">📦 General</option>
                   <option value="Income">💰 Income</option>
-                  {budgets.map(budget => (
+                  {[...new Map(budgets.map(b => [b.name, b])).values()].map(budget => (
                     <option key={budget.id} value={budget.name}>
                       {budget.icon || '📦'} {budget.name}
                     </option>
