@@ -1,6 +1,6 @@
 import React from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
-import { LogOut, ChevronLeft, ChevronRight, LayoutDashboard, PieChart, Wallet, Calendar, FileText, Settings, Sparkles, Repeat } from 'lucide-react'
+import { LogOut, ChevronLeft, ChevronRight, LayoutDashboard, PieChart, Wallet, Calendar, Settings, Sparkles, Repeat, Banknote } from 'lucide-react'
 
 interface SidebarProps {
   user: any;
@@ -24,11 +24,12 @@ const Sidebar = ({ user, collapsed = false, onToggle }: SidebarProps) => {
     { icon: Wallet, label: 'Accounts', path: '/accounts' },
     { icon: Calendar, label: 'Transactions', path: '/transactions' },
     { icon: Repeat, label: 'Recurring', path: '/recurring' },
+    { icon: Banknote, label: 'Budgets', path: '/budget-details' },
     { icon: Settings, label: 'Settings', path: '/settings' },
   ]
 
   return (
-    <div className={`${collapsed ? 'w-20' : 'w-[287px]'} bg-[#0a0a0c] border-r border-white/10 flex flex-col justify-between transition-all duration-300 relative flex-shrink-0`}>
+    <div className={`${collapsed ? 'w-20' : 'w-[240px]'} bg-[#0a0a0c] border-r border-white/[0.06] flex flex-col justify-between transition-all duration-300 relative flex-shrink-0`}>
       {/* Toggle Button */}
       <button
         onClick={onToggle}

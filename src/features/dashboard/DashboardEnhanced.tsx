@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Sidebar } from '../../shared/components';
+import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Settings as SettingsIcon, CalendarDays, Plus } from 'lucide-react';
+import { Sidebar, TransactionModal } from '../../shared/components';
 import api from '../../api/axios';
 import { useAppData } from '../../shared/context/AppDataContext';
 
@@ -43,8 +44,6 @@ export const DashboardEnhanced: React.FC = () => {
   const [monthlySpent, setMonthlySpent] = useState(0);
   const [monthlyLimit, setMonthlyLimit] = useState(0);
   const [showAddTxModal, setShowAddTxModal] = useState(false);
-  const [txForm, setTxForm] = useState({ type: 'expense', category: '', amount: '', note: '', date: new Date().toISOString().split('T')[0], account_id: '' });
-  const [txSaving, setTxSaving] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     return localStorage.getItem('sidebarCollapsed') === 'true';
   });
@@ -77,12 +76,17 @@ export const DashboardEnhanced: React.FC = () => {
       .reduce((sum, t) => sum + t.amount, 0);
     setMonthlySpent(spent);
 
-    const limit = accountId === 'all'
+    // Prefer budgets total for the account as the monthly budget. Fall back to account monthly_allowance.
+    const budgetList = accountId === 'all' ? budgets : budgets.filter(b => b.account_id === accountId);
+    const budgetSum = budgetList.reduce((s, b) => s + (b.budget_amount || 0), 0);
+    const fallbackLimit = accountId === 'all'
       ? accs.reduce((sum, acc) => sum + (acc.monthly_allowance || 0), 0)
       : (accs.find(a => a.id === accountId)?.monthly_allowance || 0);
-    setMonthlyLimit(limit);
+    setMonthlyLimit(budgetSum > 0 ? budgetSum : fallbackLimit);
 
-    setTransactions(filteredTx.slice(0, 4));
+    setTransactions(
+      [...filteredTx].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).slice(0, 5)
+    );
   };
 
   useEffect(() => {
@@ -124,9 +128,11 @@ export const DashboardEnhanced: React.FC = () => {
       computeMetrics(allTransactions, accounts, selectedAccountId, period.periodStart, period.periodEnd);
     }
     setTransactions(
-      (selectedAccountId === 'all' ? allTransactions : allTransactions.filter(t => t.account_id === selectedAccountId)).slice(0, 4)
+      [...(selectedAccountId === 'all' ? allTransactions : allTransactions.filter(t => t.account_id === selectedAccountId))]
+        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+        .slice(0, 5)
     );
-  }, [selectedAccountId, period.loading, period.periodStart, allTransactions, accounts]);
+  }, [selectedAccountId, period.loading, period.periodStart, allTransactions, accounts, budgets]);
 
   const handleAccountChange = (accountId: number | 'all') => {
     setSelectedAccountId(accountId);
@@ -139,30 +145,10 @@ export const DashboardEnhanced: React.FC = () => {
     }
   };
 
-  const handleAddTransaction = async () => {
-    if (!txForm.category || !txForm.amount || !txForm.account_id) return;
-    setTxSaving(true);
-    try {
-      await api.post('/transactions', {
-        type: txForm.type,
-        category: txForm.category,
-        amount: parseFloat(txForm.amount),
-        note: txForm.note,
-        date: txForm.date,
-        account_id: parseInt(txForm.account_id),
-      });
-      // Refresh shared context (updates accounts + transactions for all pages)
-      await refresh();
-      // Refresh page-specific budgets
-      const budgetsRes = await api.get('/budgets');
-      setBudgets(budgetsRes.data);
-      setShowAddTxModal(false);
-      setTxForm({ type: 'expense', category: '', amount: '', note: '', date: new Date().toISOString().split('T')[0], account_id: '' });
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setTxSaving(false);
-    }
+  const handleTransactionSuccess = async () => {
+    await refresh();
+    const budgetsRes = await api.get('/budgets');
+    setBudgets(budgetsRes.data);
   };
 
   const now = new Date();
@@ -219,444 +205,356 @@ export const DashboardEnhanced: React.FC = () => {
   const getBudgetIcon = (icon: string | null, name: string): string => {
     if (icon) return icon;
     const map: Record<string, string> = {
-      'Food': 'restaurant', 'Dining': 'restaurant', 'Transport': 'directions_car',
-      'Transportation': 'directions_car', 'Entertainment': 'movie', 'Shopping': 'shopping_bag',
+      'Food': 'restaurant', 'Dining': 'restaurant', 'Lunch': 'restaurant', 'Dinner': 'restaurant',
+      'Transport': 'directions_car', 'Transportation': 'directions_car', 'Travel': 'flight',
+      'Entertainment': 'movie', 'Shopping': 'shopping_bag', 'Groceries': 'shopping_cart',
       'Bills': 'receipt', 'Utilities': 'bolt', 'Healthcare': 'medical_services',
-      'Housing': 'home', 'Groceries': 'shopping_cart', 'Savings': 'savings',
+      'Housing': 'home', 'Rent': 'home', 'Savings': 'savings', 'Investment': 'trending_up',
+      'Education': 'school', 'Subscriptions': 'subscriptions', 'Subscription': 'subscriptions',
+      'Personal Care': 'spa', 'Health': 'favorite', 'Sports': 'sports_gymnastics',
+      'Gifts': 'card_giftcard', 'Insurance': 'shield', 'Debt': 'credit_card',
+      'Salary': 'payments', 'Income': 'payments', 'Freelance': 'work',
+      'Coffee': 'local_cafe', 'Social Life': 'people', 'Social': 'people',
+      'Leisure': 'weekend', 'Kids': 'child_care', 'Pets': 'pets',
     };
     return map[name] || 'category';
   };
 
   return (
     <>
-      <div className="flex h-screen bg-[#0A0A0A] overflow-hidden">
+      <div className="flex h-screen overflow-hidden bg-[#0A0A0A]">
         <Sidebar user={user} collapsed={sidebarCollapsed} onToggle={toggleSidebar} />
 
-        <div className="flex-1 flex flex-col relative overflow-hidden">
-          {/* Header */}
-          <div className="sticky top-0 z-10 flex h-20 w-full items-center justify-between border-b border-white/5 bg-[#0A0A0A]/80 backdrop-blur-md px-6 lg:px-12">
-            <div className="flex items-center gap-8">
-              <div className="flex flex-col">
-                <h2 className="text-2xl font-bold tracking-tight text-white">Good evening, {user?.username || 'Alex'}</h2>
-                <p className="text-sm text-gray-400">Financial overview in the cosmos.</p>
-              </div>
-              <nav className="flex items-center gap-1 bg-white/5 p-1 rounded-xl border border-white/5">
-                <button className="px-5 py-1.5 text-sm font-medium text-white bg-white/10 shadow-sm rounded-lg border border-white/10">
-                  Overview
-                </button>
-                <button
-                  onClick={() => navigate('/budget-details')}
-                  className="px-5 py-1.5 text-sm font-medium text-gray-400 hover:text-white transition-all rounded-lg"
-                >
-                  Budget Details
-                </button>
-              </nav>
+        <div className="flex-1 flex flex-col overflow-hidden">
+          {/* ── Header ── */}
+          <div className="flex items-center justify-between px-8 py-5 border-b border-white/[0.06] flex-shrink-0 bg-[#0A0A0A]">
+            <div>
+              <h1 className="text-2xl font-bold text-white">Good evening, {user?.username || 'admin'}</h1>
+              <p className="text-sm text-gray-400 mt-0.5">Here's your financial overview</p>
             </div>
             <div className="flex items-center gap-3">
-              {/* Account Selector */}
               <div className="relative">
-                <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm pointer-events-none">account_balance_wallet</span>
                 <select
                   value={selectedAccountId}
                   onChange={(e) => handleAccountChange(e.target.value === 'all' ? 'all' : parseInt(e.target.value))}
-                  className="bg-white/5 border border-white/10 rounded-xl pl-9 pr-8 py-2 text-sm text-white appearance-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500 outline-none transition-all cursor-pointer"
+                  className="bg-white/5 border border-white/10 rounded-xl pl-4 pr-9 py-2 text-sm text-white appearance-none focus:ring-2 focus:ring-purple-500/50 outline-none cursor-pointer"
                 >
                   <option value="all">All Accounts</option>
                   {accounts.map(acc => (
                     <option key={acc.id} value={acc.id}>{acc.name}</option>
                   ))}
                 </select>
-                <span className="material-symbols-outlined absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 text-sm pointer-events-none">expand_more</span>
+                <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
               </div>
-              {/* Add Transaction Button */}
               <button
-                onClick={() => {
-                  setTxForm(prev => ({ ...prev, account_id: selectedAccountId !== 'all' ? String(selectedAccountId) : accounts[0] ? String(accounts[0].id) : '' }));
-                  setShowAddTxModal(true);
-                }}
-                className="flex items-center gap-2 px-4 py-2 text-sm font-bold text-white rounded-xl transition-all"
-                style={{ background: 'linear-gradient(135deg, #A855F7 0%, #7C3AED 100%)', boxShadow: '0 4px 15px rgba(168,85,247,0.3)' }}
+                onClick={() => setShowAddTxModal(true)}
+                className="flex items-center gap-2 px-4 py-2 text-sm font-bold text-white rounded-xl bg-purple-600 hover:bg-purple-700 transition-all"
               >
-                <span className="material-symbols-outlined text-lg">add</span>
+                <Plus className="w-4 h-4" />
                 Transaction
               </button>
             </div>
           </div>
 
-          <div className="flex-1 overflow-y-auto">
-            <div className="layout-content-container mx-auto flex max-w-[1200px] flex-col gap-8 p-6 lg:p-12">
-              {/* Monthly Allowance Section */}
-              <div className="grid gap-6 lg:grid-cols-3">
-                {/* Monthly Allowance Card */}
-                <div className="glass-panel relative col-span-1 lg:col-span-2 overflow-hidden rounded-3xl p-8 border-2 border-purple-500/30">
-                  <div className="absolute -right-20 -top-20 size-64 rounded-full bg-purple-500/10 blur-[80px]"></div>
-                  <div className="absolute -left-20 -bottom-20 size-64 rounded-full bg-purple-700/10 blur-[80px]"></div>
+          {/* ── Main content ── */}
+          <div className="flex-1 overflow-y-auto p-6">
+            <div className="flex gap-5 items-start">
 
-                  <div className="relative z-10">
-                    <div className="flex items-center justify-between mb-6">
-                      <p className="text-sm font-medium uppercase tracking-[0.2em] text-gray-400">Monthly Allowance</p>
-                      <div className="flex items-center gap-2 rounded-lg bg-white/5 px-3 py-1.5 border border-white/10">
-                        <span className="material-symbols-outlined text-sm text-gray-400">calendar_month</span>
-                        <span className="text-sm font-medium text-white">{currentMonthLabel}</span>
-                      </div>
-                    </div>
+              {/* ────────────────── LEFT — Budget Card ────────────────── */}
+              <div className="flex-1 min-w-0 glass-panel rounded-2xl p-6">
 
-                    <div className="flex items-center justify-between">
-                      {/* Spent */}
-                      <div>
-                        <p className="text-xs text-gray-400 uppercase tracking-wider mb-2">Spent</p>
-                        <p className="text-5xl font-bold text-white tracking-tight">RM {monthlySpent.toLocaleString()}</p>
-                      </div>
-
-                      <div className="relative flex items-center justify-center">
-                        <svg className="w-44 h-44" viewBox="0 0 36 36">
-                          <defs>
-                            <linearGradient id="ringGrad" x1="0%" y1="0%" x2="100%" y2="0%">
-                              <stop offset="0%" stopColor="#A855F7" />
-                              <stop offset="100%" stopColor="#C084FC" />
-                            </linearGradient>
-                          </defs>
-                          <path
-                            className="text-gray-800"
-                            d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="2.5"
-                          />
-                          <path
-                            d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-                            fill="none"
-                            stroke="url(#ringGrad)"
-                            strokeDasharray={`${usagePercentage}, 100`}
-                            strokeLinecap="round"
-                            strokeWidth="2.5"
-                            style={{ filter: 'drop-shadow(0 0 8px rgba(168,85,247,0.8))' }}
-                          />
-                        </svg>
-                        <div className="absolute inset-0 flex flex-col items-center justify-center">
-                          <span className="text-4xl font-bold text-white">{usagePercentage}%</span>
-                          <span className="text-xs text-purple-400 uppercase tracking-widest font-bold">Used</span>
-                        </div>
-                      </div>
-
-                      {/* Remaining */}
-                      <div className="text-right">
-                        <p className="text-xs text-gray-400 uppercase tracking-wider mb-2">Remaining</p>
-                        <p className="text-5xl font-bold text-white tracking-tight">RM {remaining.toLocaleString()}</p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Daily Metrics Cards */}
-                <div className="flex flex-col gap-6 lg:col-span-1">
-                  {/* Safe to Spend Per Day */}
-                  <div className="glass-panel rounded-2xl p-6 border border-purple-500/20">
-                    <div className="flex items-start justify-between mb-4">
-                      <p className="text-xs font-medium uppercase tracking-[0.15em] text-gray-400">Safe to Spend Per Day</p>
-                      <span className="material-symbols-outlined text-purple-400 text-xl">trending_up</span>
-                    </div>
-                    <p className="text-4xl font-bold text-white mb-2">RM {safeToSpendPerDay.toFixed(2)}</p>
-                    <p className="text-xs text-gray-400">On track for month end.</p>
-                  </div>
-
-                  {/* Daily Average Spending */}
-                  <div className="glass-panel rounded-2xl p-6 border-2 border-red-500/30 bg-red-500/5">
-                    <div className="flex items-start justify-between mb-4">
-                      <p className="text-xs font-medium uppercase tracking-[0.15em] text-gray-400">Daily Average Spending</p>
-                      <span className="material-symbols-outlined text-red-400 text-xl">trending_down</span>
-                    </div>
-                    <p className="text-4xl font-bold text-white mb-2">RM {dailyAverageSpending.toFixed(2)}</p>
-                    <p className="text-xs text-red-400">{dailyAverageSpending > safeToSpendPerDay ? `Over budget by RM${(dailyAverageSpending - safeToSpendPerDay).toFixed(2)}` : 'Within budget'}</p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Central Progress Bar */}
-              <div className="space-y-2">
-                <div className="flex items-center justify-between text-xs font-semibold uppercase tracking-widest text-gray-500">
-                  <span>Month Progress</span>
-                  <span>Day {dayOfMonth} of {period.totalDays}</span>
-                </div>
-                <div className="relative h-1.5 w-full bg-white/5 rounded-full overflow-hidden">
-                  <div
-                    className="absolute top-0 left-0 h-full rounded-full bg-gradient-to-r from-purple-700 via-purple-500 to-purple-300 shadow-[0_0_12px_rgba(168,85,247,0.6)]"
-                    style={{ width: `${monthProgress}%` }}
-                  ></div>
-                </div>
-              </div>
-
-              {/* Recent Transactions & Activity */}
-              <div className="grid gap-8 lg:grid-cols-3">
-                {/* Recent Transactions */}
-                <div className="lg:col-span-2">
-                  <div className="glass-panel rounded-3xl p-8">
-                    <h3 className="text-xl font-bold text-white mb-6">Recent Transactions</h3>
-                    <div className="space-y-4">
-                      {transactions.slice(0, 2).map((transaction, idx) => (
-                        <div key={idx} className="flex items-center justify-between p-4 bg-white/5 rounded-xl hover:bg-white/10 transition-colors border border-transparent hover:border-white/5">
-                          <div className="flex items-center gap-4">
-                            <div className={`flex size-12 items-center justify-center rounded-full ${transaction.type === 'income' ? 'bg-purple-500/20' : 'bg-red-500/20'}`}>
-                              <span className={`material-symbols-outlined ${transaction.type === 'income' ? 'text-purple-400' : 'text-red-400'}`}>
-                                {getIconForCategory(transaction.category)}
-                              </span>
-                            </div>
-                            <div>
-                              <p className="text-sm font-bold text-white">{transaction.note || transaction.category}</p>
-                              <p className="text-xs text-gray-400">{transaction.category}</p>
-                            </div>
-                          </div>
-                          <div className="text-right">
-                            <p className={`text-sm font-bold ${transaction.type === 'income' ? 'text-purple-400' : 'text-white'}`}>
-                              {transaction.type === 'income' ? '+' : '-'}RM {transaction.amount.toFixed(2)}
-                            </p>
-                            <p className="text-xs text-gray-500">{formatDate(transaction.date)}</p>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Recent Activity */}
-                <div className="lg:col-span-1">
-                  <div className="flex items-center justify-between mb-6">
-                    <h3 className="text-xl font-bold text-white">Recent Activity</h3>
-                    <button
-                      onClick={() => navigate('/transactions')}
-                      className="text-sm font-medium text-purple-400 hover:text-white transition-colors"
-                    >
-                      See All
+                {/* Date row */}
+                <div className="flex items-center justify-between mb-6">
+                  <div className="flex items-center gap-2">
+                    <CalendarDays className="w-4 h-4 text-gray-400" />
+                    <span className="text-sm font-medium text-white">{currentMonthLabel}</span>
+                    <button className="w-6 h-6 flex items-center justify-center rounded text-gray-400 hover:text-white hover:bg-white/5 transition-all">
+                      <ChevronLeft className="w-4 h-4" />
+                    </button>
+                    <button className="w-6 h-6 flex items-center justify-center rounded text-gray-400 hover:text-white hover:bg-white/5 transition-all">
+                      <ChevronRight className="w-4 h-4" />
                     </button>
                   </div>
-                  <div className="flex flex-col gap-3">
-                    {transactions.map((transaction, idx) => (
-                      <div key={idx} className="group flex items-center justify-between rounded-xl bg-white/5 p-4 transition-all hover:bg-white/10 hover:shadow-[0_0_15px_rgba(0,0,0,0.3)] border border-transparent hover:border-white/5">
-                        <div className="flex items-center gap-4">
-                          <div className={`flex size-10 items-center justify-center rounded-full ${transaction.type === 'income' ? 'bg-purple-500/20' : 'bg-red-500/20'}`}>
-                            <span className={`material-symbols-outlined text-[20px] ${transaction.type === 'income' ? 'text-purple-400' : 'text-red-400'}`}>
-                              {getIconForCategory(transaction.category)}
-                            </span>
-                          </div>
-                          <div>
-                            <p className="text-sm font-bold text-white">{transaction.note || transaction.category}</p>
-                            <p className="text-xs text-gray-400">{transaction.category} • {formatDate(transaction.date)}</p>
-                          </div>
-                        </div>
-                        <div className="text-right">
-                          <p className={`text-sm font-bold ${transaction.type === 'income' ? 'text-purple-400' : 'text-white'}`}>
-                            {transaction.type === 'income' ? '+' : '-'}RM {transaction.amount.toFixed(2)}
-                          </p>
-                        </div>
-                      </div>
-                    ))}
+                  <button
+                    onClick={() => navigate('/budget-details')}
+                    className="flex items-center gap-1.5 text-sm text-gray-400 hover:text-white transition-colors"
+                  >
+                    <SettingsIcon className="w-4 h-4" />
+                    Budget Settings
+                  </button>
+                </div>
+
+                {/* Remaining (Monthly) */}
+                <p className="text-xs text-gray-400 mb-1">Remaining (Monthly)</p>
+                <p className="text-4xl font-bold text-white mb-5">
+                  RM {remaining.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </p>
+
+                {/* Budget label + usage % */}
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-sm text-gray-400">
+                    Monthly Budget{' '}
+                    <span className="text-white font-medium">
+                      RM {monthlyLimit.toLocaleString('en-MY', { minimumFractionDigits: 2 })}
+                    </span>
+                  </p>
+                  <p className="text-sm font-semibold text-gray-300">
+                    {usagePercentage}%{' '}
+                    <span className="text-gray-500 font-normal">Used</span>
+                  </p>
+                </div>
+
+                {/* Progress bar with Today marker */}
+                <div className="relative mt-7 mb-3">
+                  {/* Today tooltip */}
+                  <div
+                    className="absolute -top-6 flex flex-col items-center pointer-events-none"
+                    style={{ left: `${Math.min(Math.max(monthProgress, 2), 98)}%`, transform: 'translateX(-50%)' }}
+                  >
+                    <span className="bg-white text-[#0A0A0A] text-[10px] font-bold px-2 py-0.5 rounded-full leading-tight whitespace-nowrap">
+                      Today
+                    </span>
+                    <div className="w-px h-1.5 bg-white/40 mt-0.5" />
+                  </div>
+                  <div className="h-2 rounded-full bg-white/[0.06] overflow-hidden">
+                    <div
+                      className="h-full rounded-full bg-gradient-to-r from-purple-600 via-pink-500 to-red-500 transition-all duration-500"
+                      style={{ width: `${usagePercentage}%` }}
+                    />
                   </div>
                 </div>
-              </div>
 
-              {/* Budget Categories Section */}
-              <div className="glass-panel rounded-3xl p-8 relative overflow-hidden">
-                <div className="absolute -right-20 -bottom-20 size-64 rounded-full bg-purple-500/10 blur-[80px]"></div>
-                <div className="absolute -left-20 -bottom-20 size-64 rounded-full bg-purple-700/10 blur-[80px]"></div>
+                {/* Exp + Remaining below bar */}
+                <div className="flex items-center justify-between mb-8">
+                  <span className="text-sm font-medium text-purple-400">Exp. RM {monthlySpent.toFixed(2)}</span>
+                  <span className="text-sm text-gray-400">
+                    Remaining{' '}
+                    <span className="text-white font-medium">RM {remaining.toFixed(2)}</span>
+                  </span>
+                </div>
 
-                <div className="relative z-10">
-                  <div className="flex items-center justify-between mb-6">
-                    <h3 className="text-xl font-bold text-white">Budget Categories</h3>
+                {/* ── Budget Categories Table ── */}
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-sm font-semibold text-white">Budget Categories</h3>
+                  <div className="flex items-center gap-3">
+                    <span className="text-xs text-gray-500">Total <span className="text-white font-medium">RM {totalBudgetSum.toFixed(2)}</span></span>
                     <button
                       onClick={() => navigate('/budget-details')}
-                      className="text-sm font-medium text-purple-400 hover:text-white transition-colors"
+                      className="text-xs px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-gray-300 border border-white/[0.08] transition-all"
                     >
                       Edit Budget
                     </button>
                   </div>
+                </div>
 
-                  {budgetCategories.length === 0 ? (
-                    <div className="text-center py-10">
-                      <span className="material-symbols-outlined text-5xl text-gray-600 mb-3 block">category</span>
-                      <p className="text-gray-400 text-sm">No budgets found{selectedAccountId !== 'all' ? ' for this account' : ''}.</p>
-                      <button
-                        onClick={() => navigate('/budget-details')}
-                        className="mt-4 px-5 py-2 text-sm font-bold text-white bg-purple-600 rounded-lg hover:bg-purple-700 transition-all"
-                      >
-                        Create Budget
-                      </button>
+                {budgetCategories.length === 0 ? (
+                  <div className="text-center py-10">
+                    <span className="material-symbols-outlined text-5xl text-gray-600 mb-3 block">category</span>
+                    <p className="text-gray-400 text-sm">No budgets found{selectedAccountId !== 'all' ? ' for this account' : ''}.</p>
+                    <button
+                      onClick={() => navigate('/budget-details')}
+                      className="mt-4 px-5 py-2 text-sm font-bold text-white bg-purple-600 rounded-lg hover:bg-purple-700 transition-all"
+                    >
+                      Create Budget
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    {/* Column headers */}
+                    <div className="grid grid-cols-[1.8fr_1fr_1fr_1fr_1.1fr_20px] gap-x-2 text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-2 px-3">
+                      <span>Category</span>
+                      <span className="text-right">Budget</span>
+                      <span className="text-right">Spent</span>
+                      <span className="text-right">Remaining</span>
+                      <span className="text-right">Usage</span>
+                      <span />
                     </div>
-                  ) : (
-                    <div className="space-y-6">
-                      {budgetCategories.map((budget) => {
-                        const percentage = budget.budget_amount > 0 ? (budget.spent_amount / budget.budget_amount) * 100 : 0;
-                        const isOverBudget = percentage > 100;
-
+                    {/* Rows */}
+                    <div className="space-y-1.5">
+                      {budgetCategories.map((budget, i) => {
+                        const pct = budget.budget_amount > 0 ? (budget.spent_amount / budget.budget_amount) * 100 : 0;
+                        const isOver = pct > 100;
+                        const rem = Math.max(budget.budget_amount - budget.spent_amount, 0);
+                        const palettes = [
+                          'bg-blue-500/15 text-blue-400',
+                          'bg-emerald-500/15 text-emerald-400',
+                          'bg-orange-500/15 text-orange-400',
+                          'bg-purple-500/15 text-purple-400',
+                          'bg-pink-500/15 text-pink-400',
+                          'bg-amber-500/15 text-amber-400',
+                        ];
+                        const ic = palettes[i % palettes.length];
                         return (
-                          <div key={budget.id} className="space-y-2">
-                            <div className="flex items-center justify-between">
-                              <div className="flex items-center gap-2">
-                                <span className="material-symbols-outlined text-purple-400 text-sm">{getBudgetIcon(budget.icon, budget.name)}</span>
-                                <span className="text-sm font-medium text-white">{budget.name}</span>
+                          <div
+                            key={budget.id}
+                            onClick={() => navigate('/budget-details')}
+                            className="grid grid-cols-[1.8fr_1fr_1fr_1fr_1.1fr_20px] gap-x-2 items-center rounded-xl bg-white/[0.025] hover:bg-white/[0.05] border border-white/[0.04] px-3 py-2.5 transition-all cursor-pointer group"
+                          >
+                            <div className="flex items-center gap-2.5 min-w-0">
+                              <div className={`w-8 h-8 rounded-lg flex-shrink-0 flex items-center justify-center ${ic}`}>
+                                <span className="material-symbols-outlined text-[16px]">{getBudgetIcon(budget.icon, budget.name)}</span>
                               </div>
-                              <div className="flex items-center gap-3">
-                                <span className="text-sm text-gray-400">
-                                  RM {budget.spent_amount.toFixed(2)} / RM {budget.budget_amount.toFixed(2)}
-                                </span>
-                                <span className={`text-sm font-bold ${isOverBudget ? 'text-red-400' : 'text-purple-400'}`}>
-                                  {percentage.toFixed(0)}%
-                                </span>
+                              <span className="text-sm font-medium text-white truncate">{budget.name}</span>
+                            </div>
+                            <span className="text-xs text-gray-400 text-right">RM {budget.budget_amount.toFixed(2)}</span>
+                            <span className={`text-xs font-medium text-right ${isOver ? 'text-red-400' : budget.spent_amount > 0 ? 'text-purple-400' : 'text-gray-500'}`}>
+                              RM {budget.spent_amount.toFixed(2)}
+                            </span>
+                            <span className={`text-xs text-right ${isOver ? 'text-red-400' : 'text-gray-300'}`}>
+                              {isOver ? '-' : ''}RM {isOver ? (budget.spent_amount - budget.budget_amount).toFixed(2) : rem.toFixed(2)}
+                            </span>
+                            <div className="flex items-center justify-end gap-1.5">
+                              <span className={`text-[11px] font-medium w-7 text-right flex-shrink-0 ${isOver ? 'text-red-400' : 'text-gray-400'}`}>
+                                {Math.round(pct)}%
+                              </span>
+                              <div className="flex-1 h-1.5 rounded-full bg-white/[0.06] overflow-hidden">
+                                <div
+                                  className={`h-full rounded-full ${isOver ? 'bg-red-500' : 'bg-gradient-to-r from-purple-600 to-red-400'}`}
+                                  style={{ width: `${Math.min(pct, 100)}%` }}
+                                />
                               </div>
                             </div>
-
-                            <div className="relative h-2 bg-gray-800 rounded-full overflow-hidden">
-                              <div
-                                className={`absolute top-0 left-0 h-full rounded-full transition-all duration-500 ${isOverBudget
-                                  ? 'bg-gradient-to-r from-red-500 to-red-400'
-                                  : 'bg-gradient-to-r from-purple-700 via-purple-500 to-purple-300'
-                                  }`}
-                                style={{
-                                  width: `${Math.min(percentage, 100)}%`,
-                                  boxShadow: isOverBudget
-                                    ? '0 0 10px rgba(239, 68, 68, 0.6)'
-                                    : '0 0 10px rgba(168, 85, 247, 0.6)'
-                                }}
-                              />
-                            </div>
+                            <span className="material-symbols-outlined text-gray-600 group-hover:text-gray-400 transition-colors text-[16px]">chevron_right</span>
                           </div>
                         );
                       })}
                     </div>
-                  )}
+                    {/* Total footer */}
+                    <div className="mt-3 grid grid-cols-[1.8fr_1fr_1fr_1fr_1.1fr_20px] gap-x-2 items-center px-3 pt-3 border-t border-white/[0.06]">
+                      <span className="text-sm font-bold text-white">Total</span>
+                      <span className="text-xs text-gray-400 text-right">RM {totalBudgetSum.toFixed(2)}</span>
+                      <span className="text-xs font-bold text-purple-400 text-right">RM {totalSpentSum.toFixed(2)}</span>
+                      <span className="text-xs font-bold text-white text-right">RM {Math.max(totalBudgetSum - totalSpentSum, 0).toFixed(2)}</span>
+                      <span className="text-xs font-bold text-white text-right pr-1">{totalUtilization}%</span>
+                      <span />
+                    </div>
+                  </>
+                )}
+              </div>
 
-                  {budgetCategories.length > 0 && (
-                    <div className="mt-8 pt-6 border-t border-white/5">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <div className="size-2 rounded-full bg-purple-500 animate-pulse"
-                            style={{ boxShadow: '0 0 10px rgba(168, 85, 247, 0.8)' }}></div>
-                          <span className="text-xs text-gray-400 uppercase tracking-wider">Total Budget Utilization</span>
-                        </div>
-                        <span className="text-lg font-bold text-white">{totalUtilization}%</span>
+              {/* ────────────────── RIGHT — Stats Panel ────────────────── */}
+              <div className="w-72 flex-shrink-0 flex flex-col gap-4">
+
+                {/* Safe to Spend Per Day */}
+                <div className="glass-panel rounded-2xl p-5">
+                  <div className="flex items-start justify-between mb-2">
+                    <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-widest leading-tight">
+                      Safe to Spend Per Day
+                    </p>
+                    <ChevronUp className="w-4 h-4 text-purple-400 flex-shrink-0" />
+                  </div>
+                  <p className="text-3xl font-bold text-white mb-1">RM {safeToSpendPerDay.toFixed(2)}</p>
+                  <p className="text-xs text-gray-400">Based on daily average</p>
+                </div>
+
+                {/* Daily Average Spending */}
+                <div className="glass-panel rounded-2xl p-5">
+                  <div className="flex items-start justify-between mb-2">
+                    <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-widest leading-tight">
+                      Daily Average Spending
+                    </p>
+                    <ChevronUp className="w-4 h-4 text-purple-400 flex-shrink-0" />
+                  </div>
+                  <p className="text-3xl font-bold text-white mb-1">RM {dailyAverageSpending.toFixed(2)}</p>
+                  {dailyAverageSpending <= safeToSpendPerDay ? (
+                    <p className="text-xs text-purple-400">
+                      Below budget by RM {(safeToSpendPerDay - dailyAverageSpending).toFixed(2)}
+                    </p>
+                  ) : (
+                    <p className="text-xs text-red-400">
+                      Over budget by RM {(dailyAverageSpending - safeToSpendPerDay).toFixed(2)}
+                    </p>
+                  )}
+                </div>
+
+                {/* Budget Progress circular chart */}
+                <div className="glass-panel rounded-2xl p-5">
+                  <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-widest mb-4">Budget Progress</p>
+                  <div className="flex flex-col items-center">
+                    <div className="relative w-28 h-28">
+                      <svg className="w-full h-full -rotate-90" viewBox="0 0 36 36">
+                        <defs>
+                          <linearGradient id="ringPurpleRed" x1="0%" y1="0%" x2="100%" y2="0%">
+                            <stop offset="0%" stopColor="#9333ea" />
+                            <stop offset="60%" stopColor="#ec4899" />
+                            <stop offset="100%" stopColor="#ef4444" />
+                          </linearGradient>
+                        </defs>
+                        <path
+                          d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                          fill="none"
+                          stroke="rgba(255,255,255,0.05)"
+                          strokeWidth="3"
+                        />
+                        <path
+                          d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                          fill="none"
+                          stroke="url(#ringPurpleRed)"
+                          strokeDasharray={`${usagePercentage}, 100`}
+                          strokeLinecap="round"
+                          strokeWidth="3"
+                        />
+                      </svg>
+                      <div className="absolute inset-0 flex flex-col items-center justify-center">
+                        <span className="text-2xl font-bold text-white">{usagePercentage}%</span>
                       </div>
                     </div>
-                  )}
+                    <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-widest mt-2">
+                      of budget used
+                    </p>
+                  </div>
+                </div>
+
+                {/* Recent Activity */}
+                <div className="glass-panel rounded-2xl p-5">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-sm font-semibold text-white">Recent Activity</h3>
+                    <button
+                      onClick={() => navigate('/transactions')}
+                      className="text-xs text-purple-400 hover:text-white transition-colors font-medium"
+                    >
+                      See All
+                    </button>
+                  </div>
+                  <div className="space-y-3">
+                    {transactions.map((transaction, idx) => (
+                      <div key={idx} className="flex items-start gap-3">
+                        <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center ${transaction.type === 'income' ? 'bg-green-500/15' : 'bg-white/[0.06]'}`}>
+                          <span className={`material-symbols-outlined text-[16px] ${transaction.type === 'income' ? 'text-green-400' : 'text-gray-400'}`}>
+                            {getIconForCategory(transaction.category)}
+                          </span>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm text-white font-medium truncate leading-tight">
+                            {transaction.note || transaction.category}
+                          </p>
+                          <p className="text-xs text-gray-500 truncate mt-0.5">
+                            {transaction.category} • {formatDate(transaction.date)}
+                          </p>
+                        </div>
+                        <p className={`text-sm font-semibold flex-shrink-0 ${transaction.type === 'income' ? 'text-green-400' : 'text-red-400'}`}>
+                          {transaction.type === 'income' ? '+' : '-'}RM {transaction.amount.toFixed(2)}
+                        </p>
+                      </div>
+                    ))}
+                    {transactions.length === 0 && (
+                      <p className="text-xs text-gray-500 text-center py-4">No recent transactions</p>
+                    )}
+                  </div>
                 </div>
               </div>
 
-              {/* Bottom Neon Accent Line */}
-              <div className="mt-8 flex justify-center pb-8">
-                <div className="h-0.5 w-1/3 bg-gradient-to-r from-transparent via-purple-500 to-transparent shadow-[0_0_15px_rgba(168,85,247,0.8)] opacity-50"></div>
-              </div>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Add Transaction Modal */}
-      {showAddTxModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-          <div className="w-full max-w-[480px] rounded-3xl overflow-hidden flex flex-col" style={{
-            background: 'rgba(10,10,10,0.95)',
-            backdropFilter: 'blur(20px)',
-            border: '1px solid rgba(168,85,247,0.4)',
-            boxShadow: '0 0 30px rgba(168,85,247,0.2)'
-          }}>
-            <div className="p-6 border-b border-white/5 flex items-center justify-between">
-              <div>
-                <h2 className="text-xl font-bold text-white">Add Transaction</h2>
-                <p className="text-gray-400 text-sm mt-0.5">Record a new transaction.</p>
-              </div>
-              <button onClick={() => setShowAddTxModal(false)} className="w-9 h-9 flex items-center justify-center rounded-full hover:bg-white/10 transition-colors">
-                <span className="material-symbols-outlined text-gray-400">close</span>
-              </button>
-            </div>
-            <div className="p-6 space-y-4">
-              {/* Type */}
-              <div className="flex gap-2">
-                {['expense', 'income'].map(t => (
-                  <button
-                    key={t}
-                    onClick={() => setTxForm(prev => ({ ...prev, type: t }))}
-                    className={`flex-1 py-2.5 rounded-xl text-sm font-bold capitalize transition-all ${txForm.type === t
-                      ? t === 'income' ? 'bg-purple-600 text-white' : 'bg-red-600/80 text-white'
-                      : 'bg-white/5 text-gray-400 hover:bg-white/10'}`}
-                  >{t}</button>
-                ))}
-              </div>
-              {/* Account */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Account</label>
-                <div className="relative">
-                  <select
-                    value={txForm.account_id}
-                    onChange={(e) => setTxForm(prev => ({ ...prev, account_id: e.target.value }))}
-                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white appearance-none focus:ring-2 focus:ring-purple-500/50 outline-none"
-                  >
-                    <option value="">Select account</option>
-                    {accounts.map(acc => <option key={acc.id} value={acc.id}>{acc.name}</option>)}
-                  </select>
-                  <span className="material-symbols-outlined absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm pointer-events-none">expand_more</span>
-                </div>
-              </div>
-              {/* Category */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Category</label>
-                <input
-                  type="text"
-                  placeholder="e.g. Food, Shopping, Salary..."
-                  value={txForm.category}
-                  onChange={(e) => setTxForm(prev => ({ ...prev, category: e.target.value }))}
-                  className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white placeholder-gray-600 focus:ring-2 focus:ring-purple-500/50 outline-none"
-                />
-              </div>
-              {/* Amount */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Amount (RM)</label>
-                <div className="relative">
-                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-sm font-medium text-gray-400">RM</span>
-                  <input
-                    type="text"
-                    inputMode="decimal"
-                    placeholder="0.00"
-                    value={txForm.amount}
-                    onChange={(e) => setTxForm(prev => ({ ...prev, amount: e.target.value.replace(/[^0-9.]/g, '') }))}
-                    className="w-full bg-white/5 border border-white/10 rounded-xl pl-12 pr-4 py-2.5 text-sm text-white placeholder-gray-600 focus:ring-2 focus:ring-purple-500/50 outline-none"
-                  />
-                </div>
-              </div>
-              {/* Note */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Note (optional)</label>
-                <input
-                  type="text"
-                  placeholder="What was this for?"
-                  value={txForm.note}
-                  onChange={(e) => setTxForm(prev => ({ ...prev, note: e.target.value }))}
-                  className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white placeholder-gray-600 focus:ring-2 focus:ring-purple-500/50 outline-none"
-                />
-              </div>
-              {/* Date */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Date</label>
-                <input
-                  type="date"
-                  value={txForm.date}
-                  onChange={(e) => setTxForm(prev => ({ ...prev, date: e.target.value }))}
-                  className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white focus:ring-2 focus:ring-purple-500/50 outline-none [color-scheme:dark]"
-                />
-              </div>
-            </div>
-            <div className="p-6 pt-2 flex gap-3">
-              <button onClick={() => setShowAddTxModal(false)} className="flex-1 py-3 rounded-xl border border-white/10 text-white font-bold hover:bg-white/5 transition-all">Cancel</button>
-              <button
-                onClick={handleAddTransaction}
-                disabled={txSaving}
-                className="flex-[2] py-3 rounded-xl text-white font-bold flex items-center justify-center gap-2 transition-all disabled:opacity-60"
-                style={{ background: 'linear-gradient(135deg, #A855F7 0%, #7C3AED 100%)', boxShadow: '0 4px 15px rgba(168,85,247,0.4)' }}
-              >
-                {txSaving ? <span className="material-symbols-outlined animate-spin text-lg">progress_activity</span> : <span className="material-symbols-outlined text-lg">add_circle</span>}
-                {txSaving ? 'Saving...' : 'Add Transaction'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <TransactionModal
+        isOpen={showAddTxModal}
+        onClose={() => setShowAddTxModal(false)}
+        onSuccess={handleTransactionSuccess}
+        defaultAccountId={selectedAccountId !== 'all' ? selectedAccountId : undefined}
+      />
     </>
   );
 };
