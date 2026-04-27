@@ -59,6 +59,9 @@ const BudgetDetailsPage: React.FC = () => {
   const [newCategoryIcon, setNewCategoryIcon] = useState('category');
   const [showAddCategory, setShowAddCategory] = useState(false);
   const [editingCategoryId, setEditingCategoryId] = useState<number | null>(null);
+  const [createBudgetError, setCreateBudgetError] = useState('');
+  const [editBudgetError, setEditBudgetError] = useState('');
+  const [addCategoryError, setAddCategoryError] = useState('');
 
   // Load budget-specific data (settings + budgets) once accounts are available
   useEffect(() => {
@@ -205,9 +208,10 @@ const BudgetDetailsPage: React.FC = () => {
 
   const handleCreateBudget = async () => {
     if (!selectedAccount || categoryAllocations.length === 0) {
-      alert('Please select an account and add at least one category');
+      setCreateBudgetError('Please select an account and add at least one category');
       return;
     }
+    setCreateBudgetError('');
     
     try {
       // Create each budget category
@@ -229,7 +233,7 @@ const BudgetDetailsPage: React.FC = () => {
       setNewBudgetAmount('');
     } catch (error: any) {
       console.error('Error creating budgets:', error);
-      alert(error.response?.data?.detail || 'Failed to create budget. Please try again.');
+      setCreateBudgetError(error.response?.data?.detail || 'Failed to create budget. Please try again.');
     }
   };
 
@@ -240,9 +244,10 @@ const BudgetDetailsPage: React.FC = () => {
     const totalBudgetNum = parseFloat(editBudgetAmount) || 0;
     const allocatedTotal = editCategoryAllocations.reduce((s, c) => s + c.amount, 0);
     if (allocatedTotal > totalBudgetNum) {
-      alert(`Total allocated (${currency} ${allocatedTotal.toFixed(2)}) exceeds the monthly budget (${currency} ${totalBudgetNum.toFixed(2)}). Please adjust category amounts.`);
+      setEditBudgetError(`Total allocated (${currency} ${allocatedTotal.toFixed(2)}) exceeds the monthly budget (${currency} ${totalBudgetNum.toFixed(2)}). Please adjust category amounts.`);
       return;
     }
+    setEditBudgetError('');
     
     try {
       // IDs created with Date.now() are > 1e12 — those are new categories, use POST
@@ -269,15 +274,16 @@ const BudgetDetailsPage: React.FC = () => {
       setShowEditModal(false);
     } catch (error: any) {
       console.error('Error updating budgets:', error);
-      alert(error.response?.data?.detail || 'Failed to update budget. Please try again.');
+      setEditBudgetError(error.response?.data?.detail || 'Failed to update budget. Please try again.');
     }
   };
 
   const handleAddCategory = () => {
     if (!newCategoryName.trim()) {
-      alert('Please enter a category name');
+      setAddCategoryError('Please enter a category name');
       return;
     }
+    setAddCategoryError('');
     
     setCategoryAllocations(prev => [...prev, {
       name: newCategoryName,
@@ -390,10 +396,7 @@ const BudgetDetailsPage: React.FC = () => {
                   <div className="space-y-2">
                     <p className="text-sm font-medium uppercase tracking-[0.2em] text-gray-400">Total Monthly Budget</p>
                     <h2 className="text-5xl font-bold text-white tracking-tight">{currency} {totalBudget.toFixed(2)}</h2>
-                    <div className="flex items-center gap-2 text-[#00FF88] text-sm font-medium mt-4">
-                    <span className="material-symbols-outlined text-sm">trending_up</span>
-                    12% more than last month
-                  </div>
+    
                 </div>
                   <div className="relative flex items-center justify-center">
                     <svg className="w-44 h-44" viewBox="0 0 36 36">
@@ -430,7 +433,7 @@ const BudgetDetailsPage: React.FC = () => {
                   <p className="text-xs font-medium uppercase tracking-[0.15em] text-gray-400">Daily Average</p>
                   <span className="material-symbols-outlined text-[#00FF88] text-xl">query_stats</span>
                 </div>
-                <p className="text-4xl font-bold text-white mb-2">${dailyAverage.toFixed(2)}</p>
+                <p className="text-4xl font-bold text-white mb-2">{currency} {dailyAverage.toFixed(2)}</p>
                 <p className="text-xs text-gray-400">Average daily spending.</p>
               </div>
               <div className="glass-panel rounded-2xl p-6 border-2 border-purple-500/30 bg-purple-500/5">
@@ -438,7 +441,7 @@ const BudgetDetailsPage: React.FC = () => {
                   <p className="text-xs font-medium uppercase tracking-[0.15em] text-gray-400">Projected Savings</p>
                   <span className="material-symbols-outlined text-purple-400 text-xl">savings</span>
                 </div>
-                <p className="text-4xl font-bold text-white mb-2">${projectedSavings.toFixed(2)}</p>
+                <p className="text-4xl font-bold text-white mb-2">{currency} {projectedSavings.toFixed(2)}</p>
                 <p className="text-xs text-purple-400">Estimated end-of-month savings.</p>
               </div>
             </div>
@@ -479,8 +482,8 @@ const BudgetDetailsPage: React.FC = () => {
                   </div>
                   <h3 className="text-lg font-bold text-white mb-1">{category.name}</h3>
                   <div className="flex justify-between items-end mb-4">
-                    <p className={`text-2xl font-bold ${isOverBudget ? 'text-red-400' : 'text-white'}`}>${category.spent}</p>
-                    <p className="text-xs text-gray-400 font-medium">of ${category.limit}</p>
+                    <p className={`text-2xl font-bold ${isOverBudget ? 'text-red-400' : 'text-white'}`}>{currency} {category.spent.toFixed(2)}</p>
+                    <p className="text-xs text-gray-400 font-medium">of {currency} {category.limit.toFixed(2)}</p>
                   </div>
                   <div className="w-full bg-white/5 h-2 rounded-full overflow-hidden">
                     <div
@@ -495,7 +498,7 @@ const BudgetDetailsPage: React.FC = () => {
                     <span className={`material-symbols-outlined text-[14px] ${isOverBudget ? 'text-red-400' : 'text-[#00FF88]'}`}>
                       {isOverBudget ? 'warning' : 'check_circle'}
                     </span>
-                    {isOverBudget ? `Over budget by $${Math.abs(remaining)}` : `Under budget by $${remaining}`}
+                    {isOverBudget ? `Over budget by ${currency} ${Math.abs(remaining).toFixed(2)}` : `Under budget by ${currency} ${remaining.toFixed(2)}`}
                   </p>
                 </div>
               );
@@ -555,9 +558,9 @@ const BudgetDetailsPage: React.FC = () => {
                         </div>
                         <span className="font-medium text-white">{category.name}</span>
                       </div>
-                      <div className="col-span-2 text-right font-medium text-white">${category.allocated.toFixed(2)}</div>
-                      <div className="col-span-2 text-right font-medium text-[#00FF88]">${category.spent.toFixed(2)}</div>
-                      <div className="col-span-2 text-right font-medium text-white">${remaining.toFixed(2)}</div>
+                      <div className="col-span-2 text-right font-medium text-white">{currency} {category.allocated.toFixed(2)}</div>
+                      <div className="col-span-2 text-right font-medium text-[#00FF88]">{currency} {category.spent.toFixed(2)}</div>
+                      <div className="col-span-2 text-right font-medium text-white">{currency} {remaining.toFixed(2)}</div>
                     <div className="col-span-2 text-right">
                       <span className={getStatusBadge(category.status)}>{category.status}</span>
                     </div>
@@ -660,7 +663,7 @@ const BudgetDetailsPage: React.FC = () => {
                   <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Allocate Categories</label>
                   <div className="px-3 py-1 bg-purple-500/10 border border-purple-500/20 rounded-full">
                     <span className="text-xs font-bold text-purple-400 tracking-wide">
-                      Remaining: ${(parseFloat(newBudgetAmount) - categoryAllocations.reduce((sum, cat) => sum + cat.amount, 0)).toFixed(2)}
+                      Remaining: {currency} {(parseFloat(newBudgetAmount) - categoryAllocations.reduce((sum, cat) => sum + cat.amount, 0)).toFixed(2)}
                     </span>
                   </div>
                 </div>
@@ -705,9 +708,12 @@ const BudgetDetailsPage: React.FC = () => {
                         type="text"
                         placeholder="Category name"
                         value={newCategoryName}
-                        onChange={(e) => setNewCategoryName(e.target.value)}
+                        onChange={(e) => { setNewCategoryName(e.target.value); setAddCategoryError(''); }}
                         className="w-full bg-white/10 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:ring-2 focus:ring-purple-500 outline-none"
                       />
+                      {addCategoryError && (
+                        <p className="text-xs text-red-400">{addCategoryError}</p>
+                      )}
                       <div className="relative">
                         <select
                           value={newCategoryIcon}
@@ -790,7 +796,11 @@ const BudgetDetailsPage: React.FC = () => {
             </div>
 
             {/* Modal Footer */}
-            <div className="p-8 border-t border-white/5 flex gap-4">
+            <div className="p-8 border-t border-white/5 flex flex-col gap-4">
+              {createBudgetError && (
+                <p className="text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-3">{createBudgetError}</p>
+              )}
+              <div className="flex gap-4">
               <button 
                 onClick={() => setShowBudgetModal(false)}
                 className="flex-1 py-4 px-6 rounded-xl border border-white/10 text-white font-bold tracking-wide hover:bg-white/5 transition-colors"
@@ -808,6 +818,7 @@ const BudgetDetailsPage: React.FC = () => {
                 <span className="material-symbols-outlined">rocket_launch</span>
                 Create Budget
               </button>
+              </div>
             </div>
           </div>
         </div>
@@ -833,6 +844,9 @@ const BudgetDetailsPage: React.FC = () => {
 
             {/* Modal Body */}
             <div className="p-8 max-h-[70vh] overflow-y-auto custom-scrollbar">
+              {editBudgetError && (
+                <div className="mb-6 p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-sm text-red-400">{editBudgetError}</div>
+              )}
               {/* Warning Banner */}
               {showWarning && (
                 <div className="mb-8 p-4 rounded-2xl bg-red-500/10 border border-red-500/20 flex gap-4 items-start">
@@ -840,7 +854,7 @@ const BudgetDetailsPage: React.FC = () => {
                   <div>
                     <p className="text-sm font-semibold text-red-400">Budget Threshold Warning</p>
                     <p className="text-xs text-red-400/80 mt-1 leading-relaxed">
-                      Your new proposed budget (${parseFloat(editBudgetAmount).toFixed(2)}) is lower than your current total spend (${totalSpent.toFixed(2)}) for this period. Some categories may be exceeded immediately.
+                      Your new proposed budget ({currency} {parseFloat(editBudgetAmount).toFixed(2)}) is lower than your current total spend ({currency} {totalSpent.toFixed(2)}) for this period. Some categories may be exceeded immediately.
                     </p>
                   </div>
                 </div>

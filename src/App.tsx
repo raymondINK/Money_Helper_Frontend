@@ -17,7 +17,6 @@ const AccountDetailsPage = lazy(() => import('./features/accounts/AccountDetails
 const TransactionsPage = lazy(() => import('./features/transactions'))
 const StatsPage = lazy(() => import('./features/stats'))
 const BudgetPage = lazy(() => import('./features/budget'))
-const BudgetDetailsPage = lazy(() => import('./features/budget/BudgetDetailsPage'))
 const RecurringPage = lazy(() => import('./features/recurring'))
 const SettingsPage = lazy(() => import('./features/settings'))
 
@@ -118,14 +117,7 @@ function App() {
               </ProtectedRoute>
             }
           />
-          <Route
-            path="/budget-details"
-            element={
-              <ProtectedRoute>
-                <BudgetDetailsPage />
-              </ProtectedRoute>
-            }
-          />
+          <Route path="/budget-details" element={<Navigate to="/dashboard" replace />} />
           <Route
             path="/recurring"
             element={

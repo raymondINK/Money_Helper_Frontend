@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Settings as SettingsIcon, CalendarDays, Plus } from 'lucide-react';
+import { ChevronDown, ChevronUp, CalendarDays, Plus } from 'lucide-react';
 import { Sidebar, TransactionModal } from '../../shared/components';
 import api from '../../api/axios';
 import { useAppData } from '../../shared/context/AppDataContext';
@@ -44,6 +44,15 @@ export const DashboardEnhanced: React.FC = () => {
   const [monthlySpent, setMonthlySpent] = useState(0);
   const [monthlyLimit, setMonthlyLimit] = useState(0);
   const [showAddTxModal, setShowAddTxModal] = useState(false);
+  const [showBudgetCreateModal, setShowBudgetCreateModal] = useState(false);
+  const [showBudgetEditModal, setShowBudgetEditModal] = useState(false);
+  const [editBudgetRows, setEditBudgetRows] = useState<{id: number; name: string; icon: string | null; budget_amount: number; spent_amount: number; account_id: number}[]>([]);
+  const [createCatName, setCreateCatName] = useState('');
+  const [createCatAmount, setCreateCatAmount] = useState('');
+  const [createCatIcon, setCreateCatIcon] = useState('category');
+  const [createCatAccountId, setCreateCatAccountId] = useState<number | null>(null);
+  const [budgetModalError, setBudgetModalError] = useState('');
+  const [savingBudget, setSavingBudget] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     return localStorage.getItem('sidebarCollapsed') === 'true';
   });
@@ -54,13 +63,6 @@ export const DashboardEnhanced: React.FC = () => {
       localStorage.setItem('sidebarCollapsed', String(!prev));
       return !prev;
     });
-  };
-
-  // Persist the currently-selected account so BudgetDetailsPage can read it
-  const persistAccountForBudgetDetails = (accountId: number | 'all') => {
-    if (accountId !== 'all') {
-      localStorage.setItem('budgetDetailsAccountId', String(accountId));
-    }
   };
 
   const computeMetrics = (txList: Transaction[], accs: Account[], accountId: number | 'all', periodStart: Date, periodEnd: Date) => {
@@ -137,10 +139,8 @@ export const DashboardEnhanced: React.FC = () => {
   const handleAccountChange = (accountId: number | 'all') => {
     setSelectedAccountId(accountId);
     if (accountId !== 'all') {
-      localStorage.setItem('budgetDetailsAccountId', String(accountId));
       localStorage.setItem('preferredAccountId', String(accountId));
     } else {
-      localStorage.removeItem('budgetDetailsAccountId');
       localStorage.removeItem('preferredAccountId');
     }
   };
@@ -152,6 +152,7 @@ export const DashboardEnhanced: React.FC = () => {
   };
 
   const now = new Date();
+  const greeting = now.getHours() < 12 ? 'Good morning' : now.getHours() < 18 ? 'Good afternoon' : 'Good evening';
   // Use salary period from hook; fall back to calendar month while loading
   const currentMonthLabel = period.loading
     ? now.toLocaleString('default', { month: 'short' }) + ' ' + now.getFullYear()
@@ -164,6 +165,44 @@ export const DashboardEnhanced: React.FC = () => {
   const remaining = Math.max(monthlyLimit - monthlySpent, 0);
   const safeToSpendPerDay = daysLeft > 0 ? remaining / daysLeft : 0;
   const dailyAverageSpending = dayOfMonth > 0 ? monthlySpent / dayOfMonth : 0;
+
+  // Contextual insight — computed from real data only
+  const getInsight = (): { icon: string; text: string; color: string } | null => {
+    if (period.loading || monthlyLimit === 0) return null;
+    // Find top spending category this cycle
+    const currentPeriodTxs = allTransactions.filter(tx => {
+      const d = new Date(tx.date);
+      return tx.type === 'expense' && d >= period.periodStart && d <= period.periodEnd;
+    });
+    const catMap: Record<string, number> = {};
+    currentPeriodTxs.forEach(tx => { catMap[tx.category] = (catMap[tx.category] || 0) + tx.amount; });
+    const topCat = Object.entries(catMap).sort(([, a], [, b]) => b - a)[0];
+
+    const cycleProgress = period.periodProgress; // % of cycle elapsed
+    const spentProgress = monthlyLimit > 0 ? (monthlySpent / monthlyLimit) * 100 : 0;
+
+    if (spentProgress >= 90) {
+      return { icon: 'warning', text: `You've used ${Math.round(spentProgress)}% of your budget. Spend carefully for the remaining ${daysLeft} day${daysLeft !== 1 ? 's' : ''}.`, color: 'text-red-400 border-red-500/20 bg-red-500/5' };
+    }
+    if (spentProgress > cycleProgress + 20) {
+      return { icon: 'trending_up', text: `You've spent ${Math.round(spentProgress)}% of your budget but only ${Math.round(cycleProgress)}% of the cycle has passed. Consider slowing down.`, color: 'text-amber-400 border-amber-500/20 bg-amber-500/5' };
+    }
+    if (safeToSpendPerDay > 0 && daysLeft > 0) {
+      const onTrack = dailyAverageSpending <= safeToSpendPerDay;
+      if (topCat && topCat[1] > 0) {
+        return {
+          icon: onTrack ? 'check_circle' : 'info',
+          text: onTrack
+            ? `You're on track. You can spend RM ${safeToSpendPerDay.toFixed(0)}/day for the rest of this cycle. ${topCat[0]} is your top spending category.`
+            : `${topCat[0]} is your highest spending category this cycle at RM ${topCat[1].toFixed(2)}.`,
+          color: onTrack ? 'text-emerald-400 border-emerald-500/20 bg-emerald-500/5' : 'text-purple-400 border-purple-500/20 bg-purple-500/5',
+        };
+      }
+      return { icon: 'check_circle', text: `You're on track. You can spend RM ${safeToSpendPerDay.toFixed(0)}/day for the rest of this cycle.`, color: 'text-emerald-400 border-emerald-500/20 bg-emerald-500/5' };
+    }
+    return null;
+  };
+  const insight = getInsight();
 
   const getIconForCategory = (category: string) => {
     const icons: Record<string, string> = {
@@ -220,6 +259,64 @@ export const DashboardEnhanced: React.FC = () => {
     return map[name] || 'category';
   };
 
+  const openEditBudgetModal = () => {
+    setEditBudgetRows(budgetCategories.map(b => ({
+      id: b.id, name: b.name, icon: b.icon, budget_amount: b.budget_amount, spent_amount: b.spent_amount, account_id: b.account_id,
+    })));
+    setBudgetModalError('');
+    setShowBudgetEditModal(true);
+  };
+
+  const saveEditBudget = async () => {
+    setSavingBudget(true);
+    setBudgetModalError('');
+    try {
+      for (const row of editBudgetRows) {
+        if (row.id > 1e12) {
+          await api.post('/budgets', { name: row.name, icon: row.icon || 'category', budget_amount: row.budget_amount, account_id: row.account_id });
+        } else {
+          await api.put(`/budgets/${row.id}`, { budget_amount: row.budget_amount });
+        }
+      }
+      const budgetsRes = await api.get('/budgets');
+      setBudgets(budgetsRes.data);
+      setShowBudgetEditModal(false);
+    } catch (err: any) {
+      setBudgetModalError(err.response?.data?.detail || 'Failed to save. Please try again.');
+    }
+    setSavingBudget(false);
+  };
+
+  const deleteBudgetRow = async (rowId: number) => {
+    if (rowId > 1e12) { setEditBudgetRows(prev => prev.filter(r => r.id !== rowId)); return; }
+    try {
+      await api.delete(`/budgets/${rowId}`);
+      setEditBudgetRows(prev => prev.filter(r => r.id !== rowId));
+      const budgetsRes = await api.get('/budgets');
+      setBudgets(budgetsRes.data);
+    } catch (err: any) {
+      setBudgetModalError(err.response?.data?.detail || 'Failed to delete.');
+    }
+  };
+
+  const handleCreateBudget = async () => {
+    if (!createCatName.trim() || !createCatAmount) { setBudgetModalError('Please fill in all fields.'); return; }
+    const acctId = selectedAccountId !== 'all' ? selectedAccountId : (createCatAccountId ?? accounts[0]?.id);
+    if (!acctId) { setBudgetModalError('Please select an account.'); return; }
+    setSavingBudget(true);
+    setBudgetModalError('');
+    try {
+      await api.post('/budgets', { name: createCatName.trim(), icon: createCatIcon || 'category', budget_amount: parseFloat(createCatAmount), account_id: acctId });
+      const budgetsRes = await api.get('/budgets');
+      setBudgets(budgetsRes.data);
+      setCreateCatName(''); setCreateCatAmount(''); setCreateCatIcon('category'); setCreateCatAccountId(null);
+      setShowBudgetCreateModal(false);
+    } catch (err: any) {
+      setBudgetModalError(err.response?.data?.detail || 'Failed to create budget.');
+    }
+    setSavingBudget(false);
+  };
+
   return (
     <>
       <div className="flex h-screen overflow-hidden bg-[#0A0A0A]">
@@ -229,7 +326,7 @@ export const DashboardEnhanced: React.FC = () => {
           {/* ── Header ── */}
           <div className="flex items-center justify-between px-8 py-5 border-b border-white/[0.06] flex-shrink-0 bg-[#0A0A0A]">
             <div>
-              <h1 className="text-2xl font-bold text-white">Good evening, {user?.username || 'admin'}</h1>
+              <h1 className="text-2xl font-bold text-white">{greeting}, {user?.username || 'admin'}</h1>
               <p className="text-sm text-gray-400 mt-0.5">Here's your financial overview</p>
             </div>
             <div className="flex items-center gap-3">
@@ -268,18 +365,12 @@ export const DashboardEnhanced: React.FC = () => {
                   <div className="flex items-center gap-2">
                     <CalendarDays className="w-4 h-4 text-gray-400" />
                     <span className="text-sm font-medium text-white">{currentMonthLabel}</span>
-                    <button className="w-6 h-6 flex items-center justify-center rounded text-gray-400 hover:text-white hover:bg-white/5 transition-all">
-                      <ChevronLeft className="w-4 h-4" />
-                    </button>
-                    <button className="w-6 h-6 flex items-center justify-center rounded text-gray-400 hover:text-white hover:bg-white/5 transition-all">
-                      <ChevronRight className="w-4 h-4" />
-                    </button>
                   </div>
                   <button
-                    onClick={() => navigate('/budget-details')}
+                    onClick={openEditBudgetModal}
                     className="flex items-center gap-1.5 text-sm text-gray-400 hover:text-white transition-colors"
                   >
-                    <SettingsIcon className="w-4 h-4" />
+                    <span className="material-symbols-outlined text-base">settings</span>
                     Budget Settings
                   </button>
                 </div>
@@ -324,14 +415,18 @@ export const DashboardEnhanced: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Exp + Remaining below bar */}
-                <div className="flex items-center justify-between mb-8">
+                {/* Exp below bar */}
+                <div className="flex items-center justify-between mb-4">
                   <span className="text-sm font-medium text-purple-400">Exp. RM {monthlySpent.toFixed(2)}</span>
-                  <span className="text-sm text-gray-400">
-                    Remaining{' '}
-                    <span className="text-white font-medium">RM {remaining.toFixed(2)}</span>
-                  </span>
                 </div>
+
+                {/* Insight banner */}
+                {insight && (
+                  <div className={`flex items-start gap-3 px-4 py-3 rounded-xl border text-sm mb-6 ${insight.color}`}>
+                    <span className="material-symbols-outlined text-base mt-0.5">{insight.icon}</span>
+                    <p className="leading-snug">{insight.text}</p>
+                  </div>
+                )}
 
                 {/* ── Budget Categories Table ── */}
                 <div className="flex items-center justify-between mb-4">
@@ -339,7 +434,7 @@ export const DashboardEnhanced: React.FC = () => {
                   <div className="flex items-center gap-3">
                     <span className="text-xs text-gray-500">Total <span className="text-white font-medium">RM {totalBudgetSum.toFixed(2)}</span></span>
                     <button
-                      onClick={() => navigate('/budget-details')}
+                      onClick={openEditBudgetModal}
                       className="text-xs px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-gray-300 border border-white/[0.08] transition-all"
                     >
                       Edit Budget
@@ -352,7 +447,7 @@ export const DashboardEnhanced: React.FC = () => {
                     <span className="material-symbols-outlined text-5xl text-gray-600 mb-3 block">category</span>
                     <p className="text-gray-400 text-sm">No budgets found{selectedAccountId !== 'all' ? ' for this account' : ''}.</p>
                     <button
-                      onClick={() => navigate('/budget-details')}
+                      onClick={() => setShowBudgetCreateModal(true)}
                       className="mt-4 px-5 py-2 text-sm font-bold text-white bg-purple-600 rounded-lg hover:bg-purple-700 transition-all"
                     >
                       Create Budget
@@ -387,8 +482,7 @@ export const DashboardEnhanced: React.FC = () => {
                         return (
                           <div
                             key={budget.id}
-                            onClick={() => navigate('/budget-details')}
-                            className="grid grid-cols-[1.8fr_1fr_1fr_1fr_1.1fr_20px] gap-x-2 items-center rounded-xl bg-white/[0.025] hover:bg-white/[0.05] border border-white/[0.04] px-3 py-2.5 transition-all cursor-pointer group"
+                            className="grid grid-cols-[1.8fr_1fr_1fr_1fr_1.1fr_20px] gap-x-2 items-center rounded-xl bg-white/[0.025] hover:bg-white/[0.05] border border-white/[0.04] px-3 py-2.5 transition-all group"
                           >
                             <div className="flex items-center gap-2.5 min-w-0">
                               <div className={`w-8 h-8 rounded-lg flex-shrink-0 flex items-center justify-center ${ic}`}>
@@ -419,6 +513,7 @@ export const DashboardEnhanced: React.FC = () => {
                         );
                       })}
                     </div>
+
                     {/* Total footer */}
                     <div className="mt-3 grid grid-cols-[1.8fr_1fr_1fr_1fr_1.1fr_20px] gap-x-2 items-center px-3 pt-3 border-t border-white/[0.06]">
                       <span className="text-sm font-bold text-white">Total</span>
@@ -445,64 +540,6 @@ export const DashboardEnhanced: React.FC = () => {
                   </div>
                   <p className="text-3xl font-bold text-white mb-1">RM {safeToSpendPerDay.toFixed(2)}</p>
                   <p className="text-xs text-gray-400">Based on daily average</p>
-                </div>
-
-                {/* Daily Average Spending */}
-                <div className="glass-panel rounded-2xl p-5">
-                  <div className="flex items-start justify-between mb-2">
-                    <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-widest leading-tight">
-                      Daily Average Spending
-                    </p>
-                    <ChevronUp className="w-4 h-4 text-purple-400 flex-shrink-0" />
-                  </div>
-                  <p className="text-3xl font-bold text-white mb-1">RM {dailyAverageSpending.toFixed(2)}</p>
-                  {dailyAverageSpending <= safeToSpendPerDay ? (
-                    <p className="text-xs text-purple-400">
-                      Below budget by RM {(safeToSpendPerDay - dailyAverageSpending).toFixed(2)}
-                    </p>
-                  ) : (
-                    <p className="text-xs text-red-400">
-                      Over budget by RM {(dailyAverageSpending - safeToSpendPerDay).toFixed(2)}
-                    </p>
-                  )}
-                </div>
-
-                {/* Budget Progress circular chart */}
-                <div className="glass-panel rounded-2xl p-5">
-                  <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-widest mb-4">Budget Progress</p>
-                  <div className="flex flex-col items-center">
-                    <div className="relative w-28 h-28">
-                      <svg className="w-full h-full -rotate-90" viewBox="0 0 36 36">
-                        <defs>
-                          <linearGradient id="ringPurpleRed" x1="0%" y1="0%" x2="100%" y2="0%">
-                            <stop offset="0%" stopColor="#9333ea" />
-                            <stop offset="60%" stopColor="#ec4899" />
-                            <stop offset="100%" stopColor="#ef4444" />
-                          </linearGradient>
-                        </defs>
-                        <path
-                          d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-                          fill="none"
-                          stroke="rgba(255,255,255,0.05)"
-                          strokeWidth="3"
-                        />
-                        <path
-                          d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-                          fill="none"
-                          stroke="url(#ringPurpleRed)"
-                          strokeDasharray={`${usagePercentage}, 100`}
-                          strokeLinecap="round"
-                          strokeWidth="3"
-                        />
-                      </svg>
-                      <div className="absolute inset-0 flex flex-col items-center justify-center">
-                        <span className="text-2xl font-bold text-white">{usagePercentage}%</span>
-                      </div>
-                    </div>
-                    <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-widest mt-2">
-                      of budget used
-                    </p>
-                  </div>
                 </div>
 
                 {/* Recent Activity */}
@@ -555,6 +592,127 @@ export const DashboardEnhanced: React.FC = () => {
         onSuccess={handleTransactionSuccess}
         defaultAccountId={selectedAccountId !== 'all' ? selectedAccountId : undefined}
       />
+
+      {/* Create Budget Modal */}
+      {showBudgetCreateModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={() => { setShowBudgetCreateModal(false); setBudgetModalError(''); }}>
+          <div className="w-full max-w-md bg-[#0a0a0c] border border-purple-500/30 rounded-2xl p-6 shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-5">
+              <div>
+                <h2 className="text-lg font-bold text-white">Create Budget Category</h2>
+                <p className="text-xs text-gray-400 mt-0.5">Set a spending limit for a category</p>
+              </div>
+              <button onClick={() => { setShowBudgetCreateModal(false); setBudgetModalError(''); }} className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-white/10 text-gray-400 transition-colors">
+                <span className="material-symbols-outlined text-lg">close</span>
+              </button>
+            </div>
+            <div className="space-y-4">
+              <div>
+                <label className="text-xs font-medium text-gray-400 block mb-1.5">Category Name</label>
+                <input type="text" value={createCatName} onChange={e => setCreateCatName(e.target.value)} placeholder="e.g. Food, Transport, Shopping"
+                  className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-purple-500/50" />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-gray-400 block mb-1.5">Monthly Budget (RM)</label>
+                <input type="number" value={createCatAmount} onChange={e => setCreateCatAmount(e.target.value)} placeholder="0.00" min="0" step="0.01"
+                  className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-purple-500/50" />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-gray-400 block mb-1.5">Icon</label>
+                <div className="flex items-center gap-2 bg-white/5 border border-white/10 rounded-xl px-4 py-2.5">
+                  <span className="material-symbols-outlined text-purple-400">{createCatIcon || 'category'}</span>
+                  <input type="text" value={createCatIcon} onChange={e => setCreateCatIcon(e.target.value)} placeholder="category"
+                    className="flex-1 bg-transparent text-sm text-white placeholder-gray-600 focus:outline-none" />
+                </div>
+                <p className="text-[10px] text-gray-600 mt-1">Any Material Symbol (e.g. restaurant, shopping_bag)</p>
+              </div>
+              {selectedAccountId === 'all' && accounts.length > 1 && (
+                <div>
+                  <label className="text-xs font-medium text-gray-400 block mb-1.5">Account</label>
+                  <select value={createCatAccountId ?? ''} onChange={e => setCreateCatAccountId(parseInt(e.target.value))}
+                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white appearance-none focus:outline-none focus:border-purple-500/50">
+                    <option value="">Select account...</option>
+                    {accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                  </select>
+                </div>
+              )}
+              {budgetModalError && (
+                <p className="text-xs text-red-400 flex items-center gap-1">
+                  <span className="material-symbols-outlined text-sm">error</span>{budgetModalError}
+                </p>
+              )}
+            </div>
+            <div className="flex gap-3 mt-6">
+              <button onClick={() => { setShowBudgetCreateModal(false); setBudgetModalError(''); }}
+                className="flex-1 py-2.5 bg-white/5 hover:bg-white/10 border border-white/10 text-gray-300 rounded-xl text-sm transition-all">Cancel</button>
+              <button onClick={handleCreateBudget} disabled={savingBudget}
+                className="flex-1 py-2.5 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-sm font-semibold disabled:opacity-50 transition-all">
+                {savingBudget ? 'Creating...' : 'Create Budget'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Budget Modal */}
+      {showBudgetEditModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={() => { setShowBudgetEditModal(false); setBudgetModalError(''); }}>
+          <div className="w-full max-w-lg bg-[#0a0a0c] border border-white/10 rounded-2xl shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between p-6 border-b border-white/5">
+              <div>
+                <h2 className="text-lg font-bold text-white">Edit Budget Allocations</h2>
+                <p className="text-xs text-gray-400 mt-0.5">Adjust limits for your budget categories</p>
+              </div>
+              <button onClick={() => { setShowBudgetEditModal(false); setBudgetModalError(''); }} className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-white/10 text-gray-400 transition-colors">
+                <span className="material-symbols-outlined text-lg">close</span>
+              </button>
+            </div>
+            <div className="p-6 max-h-[50vh] overflow-y-auto">
+              {editBudgetRows.length === 0 ? (
+                <p className="text-sm text-gray-500 text-center py-4">No budget categories to edit.</p>
+              ) : (
+                <div className="space-y-3">
+                  {editBudgetRows.map((row, idx) => (
+                    <div key={row.id} className="flex items-center gap-3">
+                      <div className="w-9 h-9 rounded-lg bg-purple-500/10 flex items-center justify-center flex-shrink-0">
+                        <span className="material-symbols-outlined text-purple-400 text-[18px]">{getBudgetIcon(row.icon, row.name)}</span>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-white truncate">{row.name}</p>
+                        <p className="text-[10px] text-gray-500">Spent: RM {row.spent_amount.toFixed(2)}</p>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs text-gray-500">RM</span>
+                        <input type="number" value={row.budget_amount} min="0" step="0.01"
+                          onChange={e => { const val = parseFloat(e.target.value) || 0; setEditBudgetRows(prev => prev.map((r, i) => i === idx ? { ...r, budget_amount: val } : r)); }}
+                          className="w-24 bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-sm text-white text-right focus:outline-none focus:border-purple-500/50" />
+                      </div>
+                      <button onClick={() => deleteBudgetRow(row.id)} className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-red-500/20 text-gray-600 hover:text-red-400 transition-colors flex-shrink-0">
+                        <span className="material-symbols-outlined text-[16px]">delete</span>
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="p-6 pt-0">
+              {budgetModalError && (
+                <p className="text-xs text-red-400 flex items-center gap-1 mb-3">
+                  <span className="material-symbols-outlined text-sm">error</span>{budgetModalError}
+                </p>
+              )}
+              <div className="flex gap-3">
+                <button onClick={() => { setShowBudgetEditModal(false); setBudgetModalError(''); }}
+                  className="flex-1 py-2.5 bg-white/5 hover:bg-white/10 border border-white/10 text-gray-300 rounded-xl text-sm transition-all">Cancel</button>
+                <button onClick={saveEditBudget} disabled={savingBudget}
+                  className="flex-1 py-2.5 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-sm font-semibold disabled:opacity-50 transition-all">
+                  {savingBudget ? 'Saving...' : 'Save Changes'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 };

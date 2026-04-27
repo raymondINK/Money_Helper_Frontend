@@ -8,3 +8,4 @@ export { default as StatusModal } from './StatusModal';
 export { default as Toast } from './Toast';
 export { default as TransactionCalendar } from './TransactionCalendar';
 export { TransactionModal } from './TransactionModal';
+export type { TransactionResult, EditableTransaction } from './TransactionModal';
