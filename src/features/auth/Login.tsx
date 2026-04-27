@@ -39,11 +39,6 @@ const Login = () => {
         }
     };
 
-    const quickLogin = (user: string, pass: string) => {
-        setUsername(user);
-        setPassword(pass);
-    };
-
     return (
         <div className="min-h-screen flex items-center justify-center bg-[#0f1115] relative overflow-hidden">
             {/* Animated gradient orbs */}
@@ -127,24 +122,6 @@ const Login = () => {
                         </button>
                     </form>
 
-                    {/* Quick Login */}
-                    <div className="mt-6 pt-6 border-t border-white/10">
-                        <p className="text-xs text-slate-500 text-center mb-3">Quick Login (Development)</p>
-                        <div className="flex gap-2">
-                            <button
-                                onClick={() => quickLogin('admin', 'admin123')}
-                                className="flex-1 px-3 py-2.5 bg-gradient-to-r from-violet-500/10 to-fuchsia-500/10 border border-violet-500/20 rounded-xl text-violet-400 text-sm font-medium hover:border-violet-500/40 hover:bg-violet-500/20 transition-all"
-                            >
-                                Admin
-                            </button>
-                            <button
-                                onClick={() => quickLogin('user', 'user123')}
-                                className="flex-1 px-3 py-2.5 bg-gradient-to-r from-fuchsia-500/10 to-pink-500/10 border border-fuchsia-500/20 rounded-xl text-fuchsia-400 text-sm font-medium hover:border-fuchsia-500/40 hover:bg-fuchsia-500/20 transition-all"
-                            >
-                                User
-                            </button>
-                        </div>
-                    </div>
                 </div>
 
                 {/* Footer */}

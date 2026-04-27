@@ -355,7 +355,7 @@ Examples:
         }
       ];
 
-      // Optionally, update transactions state immediately
+      // Trigger a refresh so parent views can reload the latest balances/transactions
       onTransactionCreated();
 
       // Reset form & close modal

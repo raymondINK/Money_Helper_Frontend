@@ -9,6 +9,7 @@ coverage/
 # Production
 build/
 dist/
+*.tsbuildinfo
 
 # Misc
 .DS_Store
@@ -37,6 +38,16 @@ pnpm-debug.log*
 # Vite
 .vite/
 *.local
+vite.config.js
+vite.config.js.map
+vite.config.d.ts
+vite.config.d.ts.map
+
+# Generated source outputs
+src/**/*.js
+src/**/*.js.map
+src/**/*.d.ts
+src/**/*.d.ts.map
 
 # OS
 Thumbs.db
