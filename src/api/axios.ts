@@ -11,7 +11,7 @@ const api = axios.create({
 // Request interceptor to add token
 api.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
-    const token = localStorage.getItem('token')
+    const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
     if (token) {
       if (!config.headers) {
         config.headers = new AxiosHeaders()
@@ -27,7 +27,7 @@ api.interceptors.request.use(
 api.interceptors.response.use(
   (response) => response,
   (error: AxiosError) => {
-    if (error.response?.status === 401) {
+    if (error.response?.status === 401 && typeof window !== 'undefined') {
       localStorage.removeItem('token')
       localStorage.removeItem('user')
       window.location.href = '/login'

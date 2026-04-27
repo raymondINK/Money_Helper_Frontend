@@ -69,9 +69,17 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   const fetchAll = useCallback(async () => {
     if (fetchingRef.current) return;
     fetchingRef.current = true;
+    // Guard browser-only APIs in case this ever runs in a non-browser runtime.
+    if (typeof window === 'undefined') {
+      setLoading(false);
+      fetchingRef.current = false;
+      return;
+    }
+
     const token = localStorage.getItem('token');
     if (!token) {
       setLoading(false);
+      fetchingRef.current = false;
       return;
     }
     try {
