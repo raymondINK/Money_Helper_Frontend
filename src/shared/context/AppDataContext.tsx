@@ -87,7 +87,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       const [userRes, accountsRes, txRes, periodRes] = await Promise.all([
         api.get('/auth/me'),
         api.get('/accounts'),
-        api.get('/transactions'),
+        api.get('/transactions?limit=1000'),
         api.get('/settings/check-monthly-reset'),
       ]);
 

@@ -85,8 +85,8 @@ const BudgetDetailsPage: React.FC = () => {
       setLoading(false);
     };
     init();
-    // Only re-run when accounts list itself changes (e.g., after context refresh)
-  }, [accounts]);
+    // Re-run when accounts list changes OR when salaryPeriod loads (provides correct totalDays)
+  }, [accounts, salaryPeriod]);
 
   const loadBudgetData = async (accountId: number) => {
     try {

@@ -43,6 +43,8 @@ const Stats = () => {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [prevTransactions, setPrevTransactions] = useState<Transaction[]>([]);
+  // Older months for MoM chart: index 0 = oldest (5 months ago), index 3 = 3 months ago
+  const [olderMonthsTransactions, setOlderMonthsTransactions] = useState<Transaction[][]>([[], [], [], []]);
   const [selectedAccountId, setSelectedAccountId] = useState<'all' | number>('all');
   const [currency, setCurrency] = useState('RM');
   const [loading, setLoading] = useState(false);
@@ -109,12 +111,18 @@ const Stats = () => {
     const load = async () => {
       setLoading(true);
       try {
-        const [cur, prev] = await Promise.all([
+        const [cur, prev, m2, m3, m4, m5] = await Promise.all([
           fetchMonthTransactions(viewDate.getFullYear(), viewDate.getMonth(), selectedAccountId),
           fetchMonthTransactions(viewDate.getFullYear(), viewDate.getMonth() - 1, selectedAccountId),
+          fetchMonthTransactions(viewDate.getFullYear(), viewDate.getMonth() - 2, selectedAccountId),
+          fetchMonthTransactions(viewDate.getFullYear(), viewDate.getMonth() - 3, selectedAccountId),
+          fetchMonthTransactions(viewDate.getFullYear(), viewDate.getMonth() - 4, selectedAccountId),
+          fetchMonthTransactions(viewDate.getFullYear(), viewDate.getMonth() - 5, selectedAccountId),
         ]);
         setTransactions(cur);
         setPrevTransactions(prev);
+        // oldest first: m5=5 months ago, m4=4, m3=3, m2=2
+        setOlderMonthsTransactions([m5, m4, m3, m2]);
       } catch (err) { console.error(err); }
       setLoading(false);
     };
@@ -156,22 +164,24 @@ const Stats = () => {
     chartExpenseData.push(transactions.filter(t => t.type === 'expense' && t.date.startsWith(pad)).reduce((s, t) => s + t.amount, 0));
   }
 
-  // Month-over-month bar chart (last 6 months)
+  // Month-over-month bar chart (last 6 months) — all 6 now fetched
   const momLabels: string[] = [];
   const momIncomeArr: number[] = [];
   const momExpenseArr: number[] = [];
   for (let i = 5; i >= 0; i--) {
     const d = new Date(year, month - i, 1);
     momLabels.push(d.toLocaleString('default', { month: 'short' }) + ' ' + String(d.getFullYear()).slice(2));
-    momIncomeArr.push(0);
-    momExpenseArr.push(0);
   }
-  // Fill current month's data into last slot
-  momIncomeArr[5] = totalIncome;
-  momExpenseArr[5] = totalExpense;
-  // Fill previous month
-  momIncomeArr[4] = prevIncome;
-  momExpenseArr[4] = prevExpense;
+  // olderMonthsTransactions = [5monthsAgo, 4monthsAgo, 3monthsAgo, 2monthsAgo]
+  for (const monthTxs of olderMonthsTransactions) {
+    momIncomeArr.push(monthTxs.filter(t => t.type === 'income').reduce((s, t) => s + t.amount, 0));
+    momExpenseArr.push(monthTxs.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0));
+  }
+  // Previous month (index 4) and current month (index 5)
+  momIncomeArr.push(prevIncome);
+  momExpenseArr.push(prevExpense);
+  momIncomeArr.push(totalIncome);
+  momExpenseArr.push(totalExpense);
 
   const mainChartData = {
     labels: chartLabels,
@@ -489,10 +499,12 @@ const Stats = () => {
                   <p className="text-xs text-gray-500">No accounts yet</p>
                 </div>
               ) : accounts.map((account) => {
+                // Income/expense filtered to the SELECTED MONTH — not all-time
                 const accIncome = transactions.filter(t => t.type === 'income' && t.account_id === account.id).reduce((s, t) => s + t.amount, 0);
                 const accExpense = transactions.filter(t => t.type === 'expense' && t.account_id === account.id).reduce((s, t) => s + t.amount, 0);
                 const allowance = account.monthly_allowance || 0;
                 const usedPct = allowance > 0 ? Math.min(Math.round((accExpense / allowance) * 100), 100) : 0;
+                const selectedMonthLabel = viewDate.toLocaleString('default', { month: 'short', year: 'numeric' });
 
                 return (
                   <div key={account.id} className="glass-panel rounded-xl p-5 relative overflow-hidden cursor-pointer hover:border-purple-500/20 border border-transparent transition-all" onClick={() => navigate(`/account-details/${account.id}`)}>
@@ -507,8 +519,12 @@ const Stats = () => {
                         <p className="text-[10px] text-gray-500 capitalize">{account.type}</p>
                       </div>
                     </div>
-                    <div className="text-lg font-bold text-white mb-3">
-                      {currency} {account.balance.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                    {/* Current balance (all-time) clearly labelled */}
+                    <div className="mb-1">
+                      <p className="text-[10px] text-gray-500">Current balance</p>
+                      <div className="text-lg font-bold text-white">
+                        {currency} {account.balance.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                      </div>
                     </div>
                     {allowance > 0 && (
                       <div className="mb-3">
@@ -525,6 +541,8 @@ const Stats = () => {
                         </div>
                       </div>
                     )}
+                    {/* Period income/expense clearly labelled */}
+                    <p className="text-[9px] text-gray-600 mb-1">{selectedMonthLabel}</p>
                     <div className="pt-2 border-t border-white/5 flex justify-between text-[11px]">
                       <div className="flex items-center gap-1 text-purple-400">
                         <span className="material-symbols-outlined text-[12px]">north_east</span>

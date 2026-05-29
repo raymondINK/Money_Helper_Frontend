@@ -78,10 +78,18 @@ const AccountDetailsPage: React.FC = () => {
       }
 
       try {
+        const now = new Date();
+        const year = now.getUTCFullYear();
+        const month = now.getUTCMonth();
+        const periodStart = new Date(Date.UTC(year, month, 1, 0, 0, 0)).toISOString();
+        const periodEnd = new Date(Date.UTC(year, month + 1, 0, 23, 59, 59)).toISOString();
+
         const [userRes, accountsRes, transactionsRes] = await Promise.all([
           api.get('/auth/me'),
           api.get('/accounts'),
-          api.get('/transactions'),
+          api.get(`/transactions/account/${parseInt(id || '0')}`, {
+            params: { start_date: periodStart, end_date: periodEnd, limit: 500 }
+          }),
         ]);
 
         setUser(userRes.data);
@@ -89,10 +97,7 @@ const AccountDetailsPage: React.FC = () => {
         const found = accountsRes.data.find((a: Account) => a.id === parseInt(id || '0'));
         setAccount(found || null);
 
-        const accountTxs = transactionsRes.data.filter(
-          (t: Transaction) => t.account_id === parseInt(id || '0')
-        );
-        setTransactions(accountTxs);
+        setTransactions(transactionsRes.data);
       } catch (err) {
         console.error(err);
         if ((err as any).response?.status === 401) {

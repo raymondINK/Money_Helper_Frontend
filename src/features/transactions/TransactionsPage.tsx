@@ -184,6 +184,11 @@ const TransactionsPage = () => {
   };
 
   const filteredTransactions = transactions.filter(tx => {
+    // List view should only show transactions in the currently-selected month
+    const txDate = new Date(tx.date);
+    if (txDate.getUTCFullYear() !== currentDate.getFullYear() || txDate.getUTCMonth() !== currentDate.getMonth()) {
+      return false;
+    }
     if (filters.search && !tx.note?.toLowerCase().includes(filters.search.toLowerCase()) &&
       !tx.category?.toLowerCase().includes(filters.search.toLowerCase())) {
       return false;

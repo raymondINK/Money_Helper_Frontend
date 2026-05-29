@@ -97,9 +97,28 @@ const BudgetPage: React.FC<BudgetPageProps> = ({ standalone = false, selectedAcc
     if (!selectedAccount) return;
     
     try {
+      const year = currentDate.getFullYear();
+      const month = currentDate.getMonth();
+      // Calendar month bounds in UTC so they match UTC-stored DB timestamps
+      const periodStart = new Date(Date.UTC(year, month, 1, 0, 0, 0)).toISOString();
+      const periodEnd = new Date(Date.UTC(year, month + 1, 0, 23, 59, 59)).toISOString();
+
       const [txRes, budgetRes, installmentsRes, recurringRes] = await Promise.all([
-        api.get(`/transactions?account_id=${selectedAccount.id}&limit=500`),
-        api.get(`/budgets?account_id=${selectedAccount.id}`),
+        api.get('/transactions/filter', {
+          params: {
+            account_id: selectedAccount.id,
+            start_date: periodStart,
+            end_date: periodEnd,
+            limit: 1000,
+          }
+        }),
+        api.get('/budgets', {
+          params: {
+            account_id: selectedAccount.id,
+            period_start: periodStart,
+            period_end: periodEnd,
+          }
+        }),
         api.get('/installments').catch(() => ({ data: [] })),
         api.get('/recurring-payments').catch(() => ({ data: [] }))
       ]);
